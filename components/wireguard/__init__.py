@@ -139,7 +139,7 @@ async def to_code(config):
 
     if CORE.is_rp2040:
         # RP2040 path: use WireGuard-Raspberry Pi Pico W (pure lwIP, no IDF needed)
-        cg.add_library("https://github.com/jaszczurtd/arduino-wireguard-pico-w.git", "0.1.6")
+        cg.add_library("https://github.com/jaszczurtd/arduino-wireguard-pico-w.git", "")
     else:
         # Original ESP32/ESP8266/BK72xx path
         from esphome.components.esp32 import add_idf_sdkconfig_option
