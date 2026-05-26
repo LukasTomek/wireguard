@@ -12,15 +12,15 @@ from esphome import automation
 from esphome.components import binary_sensor, sensor, text_sensor, time as time_
 from esphome.const import (
     CONF_ADDRESS,
-    CONF_ENABLED,
     CONF_ID,
-    CONF_PORT,
     CONF_TIME_ID,
-    CONF_TRIGGER_ID,
     ENTITY_CATEGORY_DIAGNOSTIC,
     ICON_NETWORK,
     UNIT_EMPTY,
 )
+
+# CONF_ENABLED is not in esphome.const – define it locally
+CONF_ENABLED = "enabled"
 from esphome.core import CORE
 
 # -----------------------------------------------------------------------
