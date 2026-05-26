@@ -23,8 +23,6 @@ CONF_WIREGUARD_ID = "wireguard_id"
 DEPENDENCIES = ["time"]
 CODEOWNERS = ["@lhoracek", "@droscy", "@thomas0bernard"]
 
-# The key validation regex has been described by Jason Donenfeld himself
-# url: https://lists.zx2c4.com/pipermail/wireguard/2020-December/006222.html
 _WG_KEY_REGEX = re.compile(r"^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw480]=$")
 
 wireguard_ns = cg.esphome_ns.namespace("wireguard")
@@ -128,7 +126,7 @@ async def to_code(config):
 
     if CORE.is_rp2040:
         # RP2040 path: use WireGuard-ESP32-Arduino (pure lwIP, no IDF needed)
-        cg.add_library("ciniml/WireGuard-ESP32-Arduino", "^0.3.1")
+        cg.add_library("jaszczurtd/arduino-wireguard-pico-w", "0.1.6")
         cg.add_build_flag(f"-DCONFIG_WIREGUARD_MAX_SRC_IPS={len(allowed_ips) + 1}")
     else:
         # Original ESP32/ESP8266/BK72xx path
@@ -138,10 +136,6 @@ async def to_code(config):
             from esphome.components.esp32 import add_idf_sdkconfig_option
             add_idf_sdkconfig_option("CONFIG_LWIP_PPP_SUPPORT", True)
 
-    # This flag is added here because the esp_wireguard library statically
-    # set the size of its allowed_ips list at compile time using this value;
-    # the '+1' modifier is relative to the device's own address that will
-    # be automatically added to the provided list.
         cg.add_build_flag(f"-DCONFIG_WIREGUARD_MAX_SRC_IPS={len(allowed_ips) + 1}")
         cg.add_library("droscy/esp_wireguard", "0.4.5")
 
