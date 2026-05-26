@@ -1,164 +1,91 @@
-"""WireGuard component for ESPHome – extended to support RP2040 (CYW43/lwIP).
+import ipaddress
+import re
 
-Original component supports: ESP32, ESP8266, BK72xx
-This fork adds: RP2040 (Raspberry Pi Pico W / rpipicow, rpipico2w)
-
-All YAML parameter names are identical to the official component:
-  https://esphome.io/components/wireguard/
-"""
-
-import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome import automation
-from esphome.components import binary_sensor, sensor, text_sensor, time as time_
-from esphome.const import (
-    CONF_ADDRESS,
-    CONF_ID,
-    CONF_TIME_ID,
-    ENTITY_CATEGORY_DIAGNOSTIC,
-)
-from esphome.core import CORE
+import esphome.codegen as cg
+from esphome.components import time
+import esphome.config_validation as cv
+from esphome.const import CONF_ADDRESS, CONF_ID, CONF_REBOOT_TIMEOUT, CONF_TIME_ID
+from esphome.core import CORE, TimePeriod
 
-# Define locally – not reliably present in esphome.const across all versions
-ICON_NETWORK = "mdi:network"
-UNIT_EMPTY   = ""
-
-# -----------------------------------------------------------------------
-# Supported platforms
-# -----------------------------------------------------------------------
-SUPPORTED_PLATFORMS = ["esp32", "esp8266", "bk72xx", "rp2040"]
-
-CODEOWNERS = ["@droscy", "@lhoracek"]
-DEPENDENCIES = ["network", "time"]
-AUTO_LOAD = ["binary_sensor", "sensor", "text_sensor"]
-
-wireguard_ns = cg.esphome_ns.namespace("wireguard")
-Wireguard = wireguard_ns.class_("Wireguard", cg.PollingComponent)
-
-WireguardPeerOnlineCondition = wireguard_ns.class_("WireguardPeerOnlineCondition", automation.Condition)
-WireguardEnabledCondition    = wireguard_ns.class_("WireguardEnabledCondition",    automation.Condition)
-WireguardEnableAction        = wireguard_ns.class_("WireguardEnableAction",        automation.Action)
-WireguardDisableAction       = wireguard_ns.class_("WireguardDisableAction",       automation.Action)
+CONF_NETMASK = "netmask"
+CONF_PRIVATE_KEY = "private_key"
+CONF_PEER_ENDPOINT = "peer_endpoint"
+CONF_PEER_PUBLIC_KEY = "peer_public_key"
+CONF_PEER_PORT = "peer_port"
+CONF_PEER_PRESHARED_KEY = "peer_preshared_key"
+CONF_PEER_ALLOWED_IPS = "peer_allowed_ips"
+CONF_PEER_PERSISTENT_KEEPALIVE = "peer_persistent_keepalive"
+CONF_REQUIRE_CONNECTION_TO_PROCEED = "require_connection_to_proceed"
 
 CONF_WIREGUARD_ID = "wireguard_id"
 
-# ---- exact official parameter names from https://esphome.io/components/wireguard/ ----
-CONF_PRIVATE_KEY                    = "private_key"
-CONF_PEER_ENDPOINT                  = "peer_endpoint"
-CONF_PEER_PORT                      = "peer_port"
-CONF_PEER_PUBLIC_KEY                = "peer_public_key"
-CONF_PEER_PRESHARED_KEY             = "peer_preshared_key"
-CONF_NETMASK                        = "netmask"
-CONF_PEER_ALLOWED_IPS               = "peer_allowed_ips"
-CONF_PEER_PERSISTENT_KEEPALIVE      = "peer_persistent_keepalive"
-CONF_REBOOT_TIMEOUT                 = "reboot_timeout"
-CONF_REQUIRE_CONNECTION_TO_PROCEED  = "require_connection_to_proceed"
+DEPENDENCIES = ["time"]
+CODEOWNERS = ["@lhoracek", "@droscy", "@thomas0bernard"]
 
-# sensor sub-keys (used inside binary_sensor:/sensor:/text_sensor: platform: wireguard)
-CONF_STATUS          = "status"
-CONF_ENABLED         = "enabled"
-CONF_LATEST_HANDSHAKE = "latest_handshake"
+# The key validation regex has been described by Jason Donenfeld himself
+# url: https://lists.zx2c4.com/pipermail/wireguard/2020-December/006222.html
+_WG_KEY_REGEX = re.compile(r"^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw480]=$")
 
-# WireGuard base64 key – 44 chars ending in '='
-_WG_KEY_RE = r"^[A-Za-z0-9+/]{43}=$"
+wireguard_ns = cg.esphome_ns.namespace("wireguard")
+Wireguard = wireguard_ns.class_("Wireguard", cg.Component, cg.PollingComponent)
+AllowedIP = wireguard_ns.struct("AllowedIP")
+WireguardPeerOnlineCondition = wireguard_ns.class_(
+    "WireguardPeerOnlineCondition", automation.Condition
+)
+WireguardEnabledCondition = wireguard_ns.class_(
+    "WireguardEnabledCondition", automation.Condition
+)
+WireguardEnableAction = wireguard_ns.class_("WireguardEnableAction", automation.Action)
+WireguardDisableAction = wireguard_ns.class_(
+    "WireguardDisableAction", automation.Action
+)
 
-def _wg_key(value):
-    import re
-    value = cv.string_strict(value)
-    if not re.match(_WG_KEY_RE, value):
-        raise cv.Invalid(
-            "WireGuard key must be a 44-character base64 string ending with '='"
-        )
+
+def _wireguard_key(value):
+    if _WG_KEY_REGEX.match(cv.string(value)) is not None:
+        return value
+    raise cv.Invalid(f"Invalid WireGuard key: {value}")
+
+
+def _cidr_network(value):
+    try:
+        ipaddress.ip_network(value, strict=False)
+    except ValueError as err:
+        raise cv.Invalid(f"Invalid network in CIDR notation: {err}") from err
     return value
 
-# -----------------------------------------------------------------------
-# Validate that the platform is supported
-# -----------------------------------------------------------------------
-def _validate_platform(config):
-    platform = CORE.target_platform
-    if platform not in SUPPORTED_PLATFORMS:
-        raise cv.Invalid(
-            f"WireGuard is not supported on platform '{platform}'. "
-            f"Supported platforms: {', '.join(SUPPORTED_PLATFORMS)}"
-        )
-    return config
 
-# -----------------------------------------------------------------------
-# Schema – mirrors the official component exactly
-# -----------------------------------------------------------------------
-AllowedIPSchema = cv.Schema(
+CONFIG_SCHEMA = cv.Schema(
     {
+        cv.GenerateID(): cv.declare_id(Wireguard),
+        cv.GenerateID(CONF_TIME_ID): cv.use_id(time.RealTimeClock),
         cv.Required(CONF_ADDRESS): cv.ipv4address,
-        cv.Optional("mask"): cv.ipv4address,  # CIDR mask part (optional)
+        cv.Optional(CONF_NETMASK, default="255.255.255.255"): cv.ipv4address,
+        cv.Required(CONF_PRIVATE_KEY): _wireguard_key,
+        cv.Required(CONF_PEER_ENDPOINT): cv.string,
+        cv.Required(CONF_PEER_PUBLIC_KEY): _wireguard_key,
+        cv.Optional(CONF_PEER_PORT, default=51820): cv.port,
+        cv.Optional(CONF_PEER_PRESHARED_KEY): _wireguard_key,
+        cv.Optional(CONF_PEER_ALLOWED_IPS, default=["0.0.0.0/0"]): cv.ensure_list(
+            _cidr_network
+        ),
+        cv.Optional(CONF_PEER_PERSISTENT_KEEPALIVE, default="0s"): cv.All(
+            cv.positive_time_period_seconds,
+            cv.Range(max=TimePeriod(seconds=65535)),
+        ),
+        cv.Optional(
+            CONF_REBOOT_TIMEOUT, default="15min"
+        ): cv.positive_time_period_milliseconds,
+        cv.Optional(CONF_REQUIRE_CONNECTION_TO_PROCEED, default=False): cv.boolean,
     }
-)
+).extend(cv.polling_component_schema("10s"))
 
-CONFIG_SCHEMA = cv.All(
-    cv.Schema(
-        {
-            cv.GenerateID(): cv.declare_id(Wireguard),
-            cv.GenerateID(CONF_TIME_ID): cv.use_id(time_.RealTimeClock),
 
-            # Required
-            cv.Required(CONF_ADDRESS):         cv.ipv4address,
-            cv.Required(CONF_PRIVATE_KEY):     _wg_key,
-            cv.Required(CONF_PEER_ENDPOINT):   cv.string_strict,
-            cv.Required(CONF_PEER_PUBLIC_KEY): _wg_key,
-
-            # Optional – defaults match official docs
-            cv.Optional(CONF_NETMASK, default="255.255.255.255"): cv.ipv4address,
-            cv.Optional(CONF_PEER_PORT, default=51820): cv.port,
-            cv.Optional(CONF_PEER_PRESHARED_KEY): _wg_key,
-            cv.Optional(CONF_PEER_ALLOWED_IPS, default=[]): cv.ensure_list(
-                cv.Any(
-                    cv.ipv4address,         # plain IP  e.g. 10.0.0.1
-                    cv.string_strict,       # CIDR      e.g. 10.0.0.0/24
-                )
-            ),
-            cv.Optional(CONF_PEER_PERSISTENT_KEEPALIVE, default="0s"): cv.positive_time_period_milliseconds,
-            cv.Optional(CONF_REBOOT_TIMEOUT, default="15min"): cv.positive_time_period_milliseconds,
-            cv.Optional(CONF_REQUIRE_CONNECTION_TO_PROCEED, default=False): cv.boolean,
-
-            # Inline sensors (same as official component)
-            cv.Optional(CONF_STATUS): binary_sensor.binary_sensor_schema(
-                icon=ICON_NETWORK,
-                entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
-            ),
-            cv.Optional(CONF_ENABLED): binary_sensor.binary_sensor_schema(
-                icon=ICON_NETWORK,
-                entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
-            ),
-            cv.Optional(CONF_LATEST_HANDSHAKE): sensor.sensor_schema(
-                unit_of_measurement=UNIT_EMPTY,
-                entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
-            ),
-            cv.Optional(CONF_ADDRESS): text_sensor.text_sensor_schema(
-                icon=ICON_NETWORK,
-                entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
-            ),
-        }
-    ).extend(cv.polling_component_schema("10s")),
-    _validate_platform,
-)
-
-# -----------------------------------------------------------------------
-# lib_deps selection per platform
-# -----------------------------------------------------------------------
-def _get_lib_deps():
-    if CORE.is_rp2040:
-        return [("ciniml/WireGuard-ESP32-Arduino", "^0.3.1")]
-    else:
-        return [("droscy/esp_wireguard", "^0.3.3")]
-
-# -----------------------------------------------------------------------
-# Code generation
-# -----------------------------------------------------------------------
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
-    await cg.register_component(var, config)
 
-    time_var = await cg.get_variable(config[CONF_TIME_ID])
-    cg.add(var.set_srctime(time_var))
+    cg.add_define("USE_WIREGUARD")
 
     cg.add(var.set_address(str(config[CONF_ADDRESS])))
     cg.add(var.set_netmask(str(config[CONF_NETMASK])))
@@ -166,66 +93,102 @@ async def to_code(config):
     cg.add(var.set_peer_endpoint(config[CONF_PEER_ENDPOINT]))
     cg.add(var.set_peer_public_key(config[CONF_PEER_PUBLIC_KEY]))
     cg.add(var.set_peer_port(config[CONF_PEER_PORT]))
+    cg.add(var.set_keepalive(config[CONF_PEER_PERSISTENT_KEEPALIVE]))
+    cg.add(var.set_reboot_timeout(config[CONF_REBOOT_TIMEOUT]))
 
     if CONF_PEER_PRESHARED_KEY in config:
         cg.add(var.set_preshared_key(config[CONF_PEER_PRESHARED_KEY]))
 
-    # Allowed IPs – pass as raw strings; C++ side parses them
-    allowed_ips = config[CONF_PEER_ALLOWED_IPS]
-    if allowed_ips:
-        cg.add(var.set_allowed_ips_str(allowed_ips))
+    allowed_ips = list(
+        ipaddress.collapse_addresses(
+            [
+                ipaddress.ip_network(ip, strict=False)
+                for ip in config[CONF_PEER_ALLOWED_IPS]
+            ]
+        )
+    )
 
-    # keepalive in seconds (uint16_t)
-    keepalive_ms = config[CONF_PEER_PERSISTENT_KEEPALIVE]
-    cg.add(var.set_keepalive(keepalive_ms // 1000))
+    cg.add(
+        var.set_allowed_ips(
+            [
+                cg.StructInitializer(
+                    AllowedIP,
+                    ("ip", str(ip.network_address)),
+                    ("netmask", str(ip.netmask)),
+                )
+                for ip in allowed_ips
+            ]
+        )
+    )
 
-    cg.add(var.set_reboot_timeout(config[CONF_REBOOT_TIMEOUT]))
+    cg.add(var.set_srctime(await cg.get_variable(config[CONF_TIME_ID])))
 
     if config[CONF_REQUIRE_CONNECTION_TO_PROCEED]:
         cg.add(var.disable_auto_proceed())
 
-    # Optional sensors
-    if CONF_STATUS in config:
-        sens = await binary_sensor.new_binary_sensor(config[CONF_STATUS])
-        cg.add(var.set_status_sensor(sens))
+    if CORE.is_rp2040:
+        # RP2040 path: use WireGuard-ESP32-Arduino (pure lwIP, no IDF needed)
+        cg.add_library("ciniml/WireGuard-ESP32-Arduino", "^0.3.1")
+        cg.add_build_flag(f"-DCONFIG_WIREGUARD_MAX_SRC_IPS={len(allowed_ips) + 1}")
+    else:
+        # Original ESP32/ESP8266/BK72xx path
+        # Workaround for crash on IDF 5+
+        # See https://github.com/trombik/esp_wireguard/issues/33#issuecomment-1568503651
+        if CORE.is_esp32:
+            from esphome.components.esp32 import add_idf_sdkconfig_option
+            add_idf_sdkconfig_option("CONFIG_LWIP_PPP_SUPPORT", True)
 
-    if CONF_ENABLED in config:
-        sens = await binary_sensor.new_binary_sensor(config[CONF_ENABLED])
-        cg.add(var.set_enabled_sensor(sens))
+    # This flag is added here because the esp_wireguard library statically
+    # set the size of its allowed_ips list at compile time using this value;
+    # the '+1' modifier is relative to the device's own address that will
+    # be automatically added to the provided list.
+        cg.add_build_flag(f"-DCONFIG_WIREGUARD_MAX_SRC_IPS={len(allowed_ips) + 1}")
+        cg.add_library("droscy/esp_wireguard", "0.4.5")
 
-    if CONF_LATEST_HANDSHAKE in config:
-        sens = await sensor.new_sensor(config[CONF_LATEST_HANDSHAKE])
-        cg.add(var.set_handshake_sensor(sens))
+    await cg.register_component(var, config)
 
-    # address text sensor – only if it's the text_sensor variant
-    # (CONF_ADDRESS is also used for the IP, so check type)
-    if CONF_ADDRESS in config and isinstance(config[CONF_ADDRESS], dict):
-        sens = await text_sensor.new_text_sensor(config[CONF_ADDRESS])
-        cg.add(var.set_address_sensor(sens))
 
-    # Platform-specific library
-    for name, version in _get_lib_deps():
-        cg.add_library(name, version)
-
-    cg.add_define("USE_WIREGUARD")
-
-# -----------------------------------------------------------------------
-# Automation helpers
-# -----------------------------------------------------------------------
-WIREGUARD_ACTION_SCHEMA = automation.maybe_simple_id(
-    {cv.GenerateID(CONF_WIREGUARD_ID): cv.use_id(Wireguard)}
+@automation.register_condition(
+    "wireguard.peer_online",
+    WireguardPeerOnlineCondition,
+    cv.Schema({cv.GenerateID(): cv.use_id(Wireguard)}),
 )
-
-@automation.register_action("wireguard.enable",  WireguardEnableAction,  WIREGUARD_ACTION_SCHEMA)
-@automation.register_action("wireguard.disable", WireguardDisableAction, WIREGUARD_ACTION_SCHEMA)
-async def wireguard_action_to_code(config, action_id, template_arg, args):
-    var = cg.new_Pvariable(action_id, template_arg)
-    await cg.register_parented(var, config[CONF_WIREGUARD_ID])
+async def wireguard_peer_up_to_code(config, condition_id, template_arg, args):
+    var = cg.new_Pvariable(condition_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
     return var
 
-@automation.register_condition("wireguard.peer_online", WireguardPeerOnlineCondition, WIREGUARD_ACTION_SCHEMA)
-@automation.register_condition("wireguard.enabled",     WireguardEnabledCondition,    WIREGUARD_ACTION_SCHEMA)
-async def wireguard_condition_to_code(config, condition_id, template_arg, args):
+
+@automation.register_condition(
+    "wireguard.enabled",
+    WireguardEnabledCondition,
+    cv.Schema({cv.GenerateID(): cv.use_id(Wireguard)}),
+)
+async def wireguard_enabled_to_code(config, condition_id, template_arg, args):
     var = cg.new_Pvariable(condition_id, template_arg)
-    await cg.register_parented(var, config[CONF_WIREGUARD_ID])
+    await cg.register_parented(var, config[CONF_ID])
+    return var
+
+
+@automation.register_action(
+    "wireguard.enable",
+    WireguardEnableAction,
+    cv.Schema({cv.GenerateID(): cv.use_id(Wireguard)}),
+    synchronous=True,
+)
+async def wireguard_enable_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    return var
+
+
+@automation.register_action(
+    "wireguard.disable",
+    WireguardDisableAction,
+    cv.Schema({cv.GenerateID(): cv.use_id(Wireguard)}),
+    synchronous=True,
+)
+async def wireguard_disable_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
     return var
