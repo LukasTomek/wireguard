@@ -1,34 +1,29 @@
 # ============================================================
 #  ESPHome – Raspberry Pi Pico W + WireGuard (remote sensor)
-#  Uses the custom wireguard component from this repository.
+#  Parameter names are identical to the official component:
+#  https://esphome.io/components/wireguard/
 # ============================================================
 
 esphome:
   name: pico-remote
   friendly_name: "Pico W Remote Sensor"
 
-# RP2040 platform (Pico W has CYW43 WiFi)
 rp2040:
   board: rpipicow
   framework:
-    # arduino-pico ships lwIP which the WireGuard library uses
     platform_version: https://github.com/earlephilhower/arduino-pico/releases/download/4.1.1/package_rp2040_index.json
 
-# Tell ESPHome where the custom component lives
 external_components:
   - source:
       type: local
-      path: esphome/components   # path to the folder containing wireguard/
+      path: esphome/components
     components: [wireguard]
 
-# WiFi – must be up before WireGuard can connect
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-  # The WireGuard tunnel address must be used for OTA / API access
-  use_address: 10.6.0.2          # <-- your WireGuard peer address
+  use_address: 10.6.0.2   # must match wireguard address below
 
-# SNTP time – required before WireGuard can do the handshake
 time:
   - platform: sntp
     id: sntp_time
@@ -36,51 +31,35 @@ time:
       - pool.ntp.org
 
 # ============================================================
-#  WireGuard – custom component
+#  WireGuard – same YAML keys as the official component
 # ============================================================
 wireguard:
   id: wg
   time_id: sntp_time
 
-  # This device's VPN IP address (must be unique on your WireGuard subnet)
   address: 10.6.0.2
-  netmask: 255.255.255.0         # or 255.255.255.255 for a /32
+  netmask: 255.255.255.0
 
-  # Keys – generate with: wg genkey | tee privatekey | wg pubkey > publickey
-  private_key: !secret wg_private_key      # 44-char base64
-
-  # Your WireGuard server (e.g. running wg-easy on your home router / HA box)
-  peer_endpoint: !secret wg_server_host    # DDNS hostname or public IP
+  private_key: !secret wg_private_key
+  peer_endpoint: !secret wg_server_host
   peer_public_key: !secret wg_server_pubkey
   peer_port: 51820
 
-  # Optional preshared key for extra security
-  # preshared_key: !secret wg_preshared_key
+  # peer_preshared_key: !secret wg_preshared_key   # optional
 
-  # Route all traffic through the VPN (recommended for remote devices)
-  allowed_ips:
-    - address: 0.0.0.0
-      netmask: 0.0.0.0
+  peer_allowed_ips:
+    - 0.0.0.0/0   # full tunnel – all traffic through VPN
 
-  # Send a keepalive every 25 s so NAT mappings stay alive
-  keepalive: 25
+  peer_persistent_keepalive: 25s
+  reboot_timeout: 15min
 
-  # Reboot if the peer is unreachable for 3 minutes
-  reboot_timeout: 3min
-
-  # Status sensors
   status:
     name: "WireGuard Status"
   enabled:
     name: "WireGuard Enabled"
   latest_handshake:
-    name: "WireGuard Last Handshake"
-  address:
-    name: "WireGuard Address"
+    name: "WireGuard Latest Handshake"
 
-# ============================================================
-#  API + OTA (will travel through the WireGuard tunnel)
-# ============================================================
 api:
   encryption:
     key: !secret api_key
@@ -89,13 +68,9 @@ ota:
   - platform: esphome
     password: !secret ota_password
 
-# Logger over USB serial (helpful for debugging the tunnel)
 logger:
-  level: DEBUG
+  level: WARNING
 
-# ============================================================
-#  Example sensors
-# ============================================================
 sensor:
   - platform: internal_temperature
     name: "RP2040 Internal Temperature"

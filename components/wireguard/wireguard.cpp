@@ -29,7 +29,12 @@ namespace wireguard {
 
 static const char *const TAG = "wireguard";
 
+/*
+ * Cannot use `static const char*` for LOGMSG_PEER_STATUS on esp8266 platform
+ * because log messages in `Wireguard::update()` method fail.
+ */
 #define LOGMSG_PEER_STATUS "Remote peer is %s (latest handshake %s)"
+
 static const char *const LOGMSG_ONLINE  = "online";
 static const char *const LOGMSG_OFFLINE = "offline";
 
@@ -99,6 +104,8 @@ void Wireguard::setup() {
   if (this->preshared_key_ != nullptr)
     this->wg_config_.preshared_key = this->preshared_key_;
 
+  this->publish_enabled_state();
+
   {
     LwIPLock lock;
     this->wg_initialized_ = esp_wireguard_init(&(this->wg_config_), &(this->wg_ctx_));
@@ -127,7 +134,7 @@ void Wireguard::setup() {
 // ---------------------------------------------------------------------------
 
 void Wireguard::loop() {
-  if (!this->enabled_)
+  if (!this->enabled_) {
     return;
 
 #ifdef USE_RP2040
@@ -162,8 +169,9 @@ void Wireguard::update() {
            (int) peer_up, (double) lhs,
            (double) this->latest_saved_handshake_, (int) lhs_updated);
 
-  if (lhs_updated)
+  if (lhs_updated) {
     this->latest_saved_handshake_ = lhs;
+  }
 
   std::string latest_handshake =
       (this->latest_saved_handshake_ > 0)
@@ -186,6 +194,7 @@ void Wireguard::update() {
       this->start_connection_();
     }
 
+    // check reboot timeout every time the peer is down
     if (this->enabled_ && this->reboot_timeout_ > 0) {
       if (millis() - this->wg_peer_offline_time_ > this->reboot_timeout_) {
         ESP_LOGE(TAG, "Remote peer is unreachable; rebooting");
@@ -195,13 +204,15 @@ void Wireguard::update() {
   }
 
 #ifdef USE_BINARY_SENSOR
-  if (this->status_sensor_ != nullptr)
+  if (this->status_sensor_ != nullptr) {
     this->status_sensor_->publish_state(peer_up);
+  }
 #endif
 
 #ifdef USE_SENSOR
-  if (this->handshake_sensor_ != nullptr && lhs_updated)
+  if (this->handshake_sensor_ != nullptr && lhs_updated) {
     this->handshake_sensor_->publish_state((double) this->latest_saved_handshake_);
+  }
 #endif
 }
 
@@ -215,8 +226,8 @@ void Wireguard::dump_config() {
   mask_key_to(private_key_masked,   sizeof(private_key_masked),   this->private_key_);
   mask_key_to(preshared_key_masked, sizeof(preshared_key_masked), this->preshared_key_);
 
-  // clang-format off
-  ESP_LOGCONFIG(TAG,
+  ESP_LOGCONFIG(
+      TAG,
     "WireGuard:\n"
     "  Address:              %s\n"
     "  Netmask:              %s\n"
@@ -229,15 +240,13 @@ void Wireguard::dump_config() {
     this->peer_endpoint_, this->peer_port_, this->peer_public_key_,
     (this->preshared_key_ != nullptr ? preshared_key_masked : "NOT IN USE"));
   // clang-format on
-
   ESP_LOGCONFIG(TAG, "  Peer Allowed IPs:");
-  for (const AllowedIP &ip : this->allowed_ips_)
-    ESP_LOGCONFIG(TAG, "    - %s/%s", ip.ip, ip.netmask);
-
-  ESP_LOGCONFIG(TAG, "  Peer Persistent Keepalive: %d%s",
-                this->keepalive_, (this->keepalive_ > 0 ? "s" : " (DISABLED)"));
-  ESP_LOGCONFIG(TAG, "  Reboot Timeout: %" PRIu32 "%s",
-                (this->reboot_timeout_ / 1000),
+  for (const AllowedIP &allowed_ip : this->allowed_ips_) {
+    ESP_LOGCONFIG(TAG, "    - %s/%s", allowed_ip.ip, allowed_ip.netmask);
+  }
+  ESP_LOGCONFIG(TAG, "  Peer Persistent Keepalive: %d%s", this->keepalive_,
+                (this->keepalive_ > 0 ? "s" : " (DISABLED)"));
+  ESP_LOGCONFIG(TAG, "  Reboot Timeout: %" PRIu32 "%s", (this->reboot_timeout_ / 1000),
                 (this->reboot_timeout_ != 0 ? "s" : " (DISABLED)"));
   ESP_LOGCONFIG(TAG, "  Require Connection to Proceed: %s",
                 (this->proceed_allowed_ ? "NO" : "YES"));
@@ -255,9 +264,7 @@ void Wireguard::dump_config() {
 
 void Wireguard::on_shutdown() { this->stop_connection_(); }
 
-bool Wireguard::can_proceed() {
-  return (this->proceed_allowed_ || this->is_peer_up() || !this->enabled_);
-}
+bool Wireguard::can_proceed() { return (this->proceed_allowed_ || this->is_peer_up() || !this->enabled_); }
 
 // ---------------------------------------------------------------------------
 // is_peer_up() / get_latest_handshake()
@@ -271,8 +278,7 @@ bool Wireguard::is_peer_up() const {
   // a handshake has been completed and the peer is reachable.
   return const_cast<WireGuard &>(this->wg_instance_).isConnected();
 #else
-  return (this->wg_initialized_ == ESP_OK) &&
-         (this->wg_connected_   == ESP_OK) &&
+  return (this->wg_initialized_ == ESP_OK) && (this->wg_connected_   == ESP_OK) &&
          (esp_wireguardif_peer_is_up(&(this->wg_ctx_)) == ESP_OK);
 #endif
 }
@@ -285,8 +291,9 @@ time_t Wireguard::get_latest_handshake() const {
   return this->latest_handshake_approx_;
 #else
   time_t result;
-  if (esp_wireguard_latest_handshake(&(this->wg_ctx_), &result) != ESP_OK)
+  if (esp_wireguard_latest_handshake(&(this->wg_ctx_), &result) != ESP_OK) {
     result = 0;
+  }
   return result;
 #endif
 }
@@ -333,8 +340,9 @@ void Wireguard::disable() {
 
 void Wireguard::publish_enabled_state() {
 #ifdef USE_BINARY_SENSOR
-  if (this->enabled_sensor_ != nullptr)
+  if (this->enabled_sensor_ != nullptr) {
     this->enabled_sensor_->publish_state(this->enabled_);
+  }
 #endif
 }
 
@@ -456,8 +464,9 @@ void Wireguard::start_connection_() {
 
   ESP_LOGD(TAG, "Configuring allowed IPs list");
   bool allowed_ips_ok = true;
-  for (const AllowedIP &ip : this->allowed_ips_)
+  for (const AllowedIP &ip : this->allowed_ips_) {
     allowed_ips_ok &= (esp_wireguard_add_allowed_ip(&(this->wg_ctx_), ip.ip, ip.netmask) == ESP_OK);
+  }
 
   if (allowed_ips_ok) {
     ESP_LOGD(TAG, "Allowed IPs list configured correctly");
@@ -497,17 +506,22 @@ void Wireguard::stop_connection_() {
 // ---------------------------------------------------------------------------
 
 void mask_key_to(char *buffer, size_t len, const char *key) {
+  // Format: "XXXXX[...]=\0" = MASK_KEY_BUFFER_SIZE chars minimum
   if (len < MASK_KEY_BUFFER_SIZE || key == nullptr) {
     if (len > 0)
       buffer[0] = '\0';
     return;
   }
+  // Copy first 5 characters of the key
   size_t i = 0;
-  for (; i < 5 && key[i] != '\0'; ++i)
+  for (; i < 5 && key[i] != '\0'; ++i) {
     buffer[i] = key[i];
+  }
+  // Append "[...]="
   const char *suffix = "[...]=";
-  for (size_t j = 0; suffix[j] != '\0' && (i + j) < len - 1; ++j)
+  for (size_t j = 0; suffix[j] != '\0' && (i + j) < len - 1; ++j) {
     buffer[i + j] = suffix[j];
+  }
   buffer[i + 6] = '\0';
 }
 

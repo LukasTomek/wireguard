@@ -36,7 +36,7 @@
   // wireguard-lwip: pure-C lwIP WireGuard implementation
   // https://github.com/ciniml/WireGuard-ESP32-Arduino
   // (also works on arduino-pico with the lwIP stack)
-  #include <WireGuard-ESP32.h>   // exposes WireGuard C++ class from that lib
+  //#include <WireGuard-ESP32.h>   // exposes WireGuard C++ class from that lib
   // We re-use the library's C++ class internally but wrap it in the same
   // ESPHome component interface as the upstream component so that the rest
   // of ESPHome (OTA, API, …) is unaffected.
@@ -88,6 +88,7 @@ class Wireguard : public PollingComponent {
   void set_peer_port(uint16_t port) { this->peer_port_ = port; }
   void set_preshared_key(const char *key) { this->preshared_key_ = key; }
 
+  /// Prevent accidental use of std::string which would dangle
   void set_address(const std::string &address) = delete;
   void set_netmask(const std::string &netmask) = delete;
   void set_private_key(const std::string &key) = delete;
@@ -96,6 +97,7 @@ class Wireguard : public PollingComponent {
   void set_preshared_key(const std::string &key) = delete;
 
   void set_allowed_ips(std::initializer_list<AllowedIP> ips) { this->allowed_ips_ = ips; }
+  /// Prevent accidental use of std::string which would dangle
   void set_allowed_ips(std::initializer_list<std::tuple<std::string, std::string>> ips) = delete;
 
   void set_keepalive(uint16_t seconds);
@@ -115,11 +117,21 @@ class Wireguard : public PollingComponent {
   void set_address_sensor(text_sensor::TextSensor *sensor);
 #endif
 
+  /// Block the setup step until peer is connected.
   void disable_auto_proceed();
+
+  /// Enable the WireGuard component.
   void enable();
+
+  /// Stop any running connection and disable the WireGuard component.
   void disable();
+
+  /// Publish the enabled state if the enabled binary sensor is configured.
   void publish_enabled_state();
+
+  /// Return if the WireGuard component is or is not enabled.
   bool is_enabled();
+
   bool is_peer_up() const;
   time_t get_latest_handshake() const;
 
