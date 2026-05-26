@@ -124,8 +124,8 @@ void Wireguard::loop() {
 // update()
 // ---------------------------------------------------------------------------
 void Wireguard::update() {
-  bool peer_up     = this->is_peer_up();
-  time_t lhs       = this->get_latest_handshake();
+  bool peer_up = this->is_peer_up();
+  time_t lhs = this->get_latest_handshake();
   bool lhs_updated = (lhs > this->latest_saved_handshake_);
 
   if (lhs_updated)
@@ -155,7 +155,7 @@ void Wireguard::update() {
     // check reboot timeout every time the peer is down
     if (this->enabled_ && this->reboot_timeout_ > 0) {
       if (millis() - this->wg_peer_offline_time_ > this->reboot_timeout_) {
-        ESP_LOGE(TAG, "Remote peer unreachable, rebooting");
+        ESP_LOGE(TAG, "Remote peer is unreachable; rebooting");
         App.reboot();
       }
     }
@@ -180,15 +180,15 @@ void Wireguard::update() {
 void Wireguard::dump_config() {
   char private_key_masked[MASK_KEY_BUFFER_SIZE];
   char preshared_key_masked[MASK_KEY_BUFFER_SIZE];
-  mask_key_to(private_key_masked,   sizeof(private_key_masked),   this->private_key_);
+  mask_key_to(private_key_masked, sizeof(private_key_masked), this->private_key_);
   mask_key_to(preshared_key_masked, sizeof(preshared_key_masked), this->preshared_key_);
-
+  // clang-format off
   ESP_LOGCONFIG(
       TAG,
-    "WireGuard:\n"
+      "WireGuard:\n"
       "  Address: %s\n"
       "  Netmask: %s\n"
-    "  Private Key:         " LOG_SECRET("%s") "\n"
+      "  Private Key: " LOG_SECRET("%s") "\n"
       "  Peer Endpoint: " LOG_SECRET("%s") "\n"
       "  Peer Port: " LOG_SECRET("%d") "\n"
     "  Peer Public Key:     " LOG_SECRET("%s") "\n"
@@ -257,6 +257,23 @@ time_t Wireguard::get_latest_handshake() const {
 #endif
 }
 
+void Wireguard::set_keepalive(const uint16_t seconds) { this->keepalive_ = seconds; }
+void Wireguard::set_reboot_timeout(const uint32_t seconds) { this->reboot_timeout_ = seconds; }
+void Wireguard::set_srctime(time::RealTimeClock *srctime) { this->srctime_ = srctime; }
+
+#ifdef USE_BINARY_SENSOR
+void Wireguard::set_status_sensor(binary_sensor::BinarySensor *sensor) { this->status_sensor_ = sensor; }
+void Wireguard::set_enabled_sensor(binary_sensor::BinarySensor *sensor) { this->enabled_sensor_ = sensor; }
+#endif
+
+#ifdef USE_SENSOR
+void Wireguard::set_handshake_sensor(sensor::Sensor *sensor) { this->handshake_sensor_ = sensor; }
+#endif
+
+#ifdef USE_TEXT_SENSOR
+void Wireguard::set_address_sensor(text_sensor::TextSensor *sensor) { this->address_sensor_ = sensor; }
+#endif
+
 // ---------------------------------------------------------------------------
 // enable() / disable()
 // ---------------------------------------------------------------------------
@@ -271,7 +288,7 @@ void Wireguard::enable() {
 
 void Wireguard::disable() {
   this->enabled_ = false;
-  this->defer([this]() { this->stop_connection_(); });
+  this->defer([this]() { this->stop_connection_(); });  // defer to avoid blocking running loop
   ESP_LOGI(TAG, "Disabled");
   this->publish_enabled_state();
 }
@@ -284,7 +301,7 @@ void Wireguard::publish_enabled_state() {
 #endif
 }
 
-bool Wireguard::is_enabled()           { return this->enabled_; }
+bool Wireguard::is_enabled() { return this->enabled_; }
 
 // ---------------------------------------------------------------------------
 // start_connection_()
