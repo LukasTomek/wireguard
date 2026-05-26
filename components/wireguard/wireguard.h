@@ -13,9 +13,11 @@
 #ifdef USE_BINARY_SENSOR
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #endif
+
 #ifdef USE_SENSOR
 #include "esphome/components/sensor/sensor.h"
 #endif
+
 #ifdef USE_TEXT_SENSOR
 #include "esphome/components/text_sensor/text_sensor.h"
 #endif
@@ -35,7 +37,7 @@
 namespace esphome {
 namespace wireguard {
 
-/** Allowed IP entry for WireGuard peer configuration. */
+/// Allowed IP entry for WireGuard peer configuration.
 struct AllowedIP {
   const char *ip;
   const char *netmask;
@@ -53,27 +55,41 @@ class Wireguard : public PollingComponent {
 
   float get_setup_priority() const override { return esphome::setup_priority::BEFORE_CONNECTION; }
 
-  void set_address(const char *address)       { this->address_       = address; }
-  void set_netmask(const char *netmask)       { this->netmask_       = netmask; }
-  void set_private_key(const char *key)       { this->private_key_   = key; }
-  void set_peer_endpoint(const char *ep)      { this->peer_endpoint_ = ep; }
-  void set_peer_public_key(const char *key)   { this->peer_public_key_ = key; }
-  void set_peer_port(uint16_t port)           { this->peer_port_     = port; }
-  void set_preshared_key(const char *key)     { this->preshared_key_ = key; }
+  void set_address(const char *address) { this->address_ = address; }
+  void set_netmask(const char *netmask) { this->netmask_ = netmask; }
+  void set_private_key(const char *key) { this->private_key_ = key; }
+  void set_peer_endpoint(const char *endpoint) { this->peer_endpoint_ = endpoint; }
+  void set_peer_public_key(const char *key) { this->peer_public_key_ = key; }
+  void set_peer_port(uint16_t port) { this->peer_port_ = port; }
+  void set_preshared_key(const char *key) { this->preshared_key_ = key; }
+
+  /// Prevent accidental use of std::string which would dangle
+  void set_address(const std::string &address) = delete;
+  void set_netmask(const std::string &netmask) = delete;
+  void set_private_key(const std::string &key) = delete;
+  void set_peer_endpoint(const std::string &endpoint) = delete;
+  void set_peer_public_key(const std::string &key) = delete;
+  void set_preshared_key(const std::string &key) = delete;
+
   void set_allowed_ips(std::initializer_list<AllowedIP> ips) { this->allowed_ips_ = ips; }
-  void set_keepalive(uint16_t seconds)        { this->keepalive_     = seconds; }
-  void set_reboot_timeout(uint32_t ms)        { this->reboot_timeout_ = ms; }
-  void set_srctime(time::RealTimeClock *t)    { this->srctime_       = t; }
+  /// Prevent accidental use of std::string which would dangle
+  void set_allowed_ips(std::initializer_list<std::tuple<std::string, std::string>> ips) = delete;
+
+  void set_keepalive(uint16_t seconds);
+  void set_reboot_timeout(uint32_t seconds);
+  void set_srctime(time::RealTimeClock *srctime);
 
 #ifdef USE_BINARY_SENSOR
-  void set_status_sensor(binary_sensor::BinarySensor *s)  { this->status_sensor_  = s; }
-  void set_enabled_sensor(binary_sensor::BinarySensor *s) { this->enabled_sensor_ = s; }
+  void set_status_sensor(binary_sensor::BinarySensor *sensor);
+  void set_enabled_sensor(binary_sensor::BinarySensor *sensor);
 #endif
+
 #ifdef USE_SENSOR
-  void set_handshake_sensor(sensor::Sensor *s) { this->handshake_sensor_ = s; }
+  void set_handshake_sensor(sensor::Sensor *sensor);
 #endif
+
 #ifdef USE_TEXT_SENSOR
-  void set_address_sensor(text_sensor::TextSensor *s) { this->address_sensor_ = s; }
+  void set_address_sensor(text_sensor::TextSensor *sensor);
 #endif
 
   /// Block the setup step until peer is connected.
@@ -104,25 +120,30 @@ class Wireguard : public PollingComponent {
 
   FixedVector<AllowedIP> allowed_ips_;
 
-  uint16_t peer_port_{51820};
-  uint16_t keepalive_{0};
-  uint32_t reboot_timeout_{0};
+  uint16_t peer_port_;
+  uint16_t keepalive_;
+  uint32_t reboot_timeout_;
 
-  time::RealTimeClock *srctime_{nullptr};
+  time::RealTimeClock *srctime_;
 
 #ifdef USE_BINARY_SENSOR
-  binary_sensor::BinarySensor *status_sensor_{nullptr};
-  binary_sensor::BinarySensor *enabled_sensor_{nullptr};
-#endif
-#ifdef USE_SENSOR
-  sensor::Sensor *handshake_sensor_{nullptr};
-#endif
-#ifdef USE_TEXT_SENSOR
-  text_sensor::TextSensor *address_sensor_{nullptr};
+  binary_sensor::BinarySensor *status_sensor_ = nullptr;
+  binary_sensor::BinarySensor *enabled_sensor_ = nullptr;
 #endif
 
-  bool proceed_allowed_{true};
-  bool enabled_{true};
+#ifdef USE_SENSOR
+  sensor::Sensor *handshake_sensor_ = nullptr;
+#endif
+
+#ifdef USE_TEXT_SENSOR
+  text_sensor::TextSensor *address_sensor_ = nullptr;
+#endif
+
+  /// Set to false to block the setup step until peer is connected.
+  bool proceed_allowed_ = true;
+
+  /// When false the wireguard link will not be established
+  bool enabled_ = true;
 
 #ifdef USE_RP2040
   WireGuard wg_instance_;
@@ -131,10 +152,10 @@ class Wireguard : public PollingComponent {
   time_t    latest_handshake_approx_{0};
 #else
   wireguard_config_t wg_config_ = ESP_WIREGUARD_CONFIG_DEFAULT();
-  wireguard_ctx_t    wg_ctx_    = ESP_WIREGUARD_CONTEXT_DEFAULT();
-  esp_err_t          wg_initialized_{ESP_FAIL};
-  esp_err_t          wg_connected_{ESP_FAIL};
-#endif
+  wireguard_ctx_t wg_ctx_ = ESP_WIREGUARD_CONTEXT_DEFAULT();
+
+  esp_err_t wg_initialized_ = ESP_FAIL;
+  esp_err_t wg_connected_ = ESP_FAIL;
 
   /// The last time the remote peer become offline.
   uint32_t wg_peer_offline_time_ = 0;

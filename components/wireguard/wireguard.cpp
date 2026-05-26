@@ -42,8 +42,6 @@ static const char *const LOGMSG_OFFLINE = "offline";
 void suspend_wdt() { watchdog_update(); }
 void resume_wdt()  { watchdog_update(); }
 #else
-void suspend_wdt() {}
-void resume_wdt()  {}
 #endif
 
 // ---------------------------------------------------------------------------
@@ -85,7 +83,7 @@ void Wireguard::setup() {
     ESP_LOGI(TAG, "Initialized");
     this->wg_peer_offline_time_ = millis();
     this->srctime_->add_on_time_sync_callback([this]() { this->start_connection_(); });
-    this->defer([this]() { this->start_connection_(); });
+    this->defer([this]() { this->start_connection_(); });  // defer to avoid blocking setup
 
 #ifdef USE_TEXT_SENSOR
     if (this->address_sensor_ != nullptr) {
@@ -114,7 +112,7 @@ void Wireguard::loop() {
   }
 #else
   if ((this->wg_initialized_ == ESP_OK) && (this->wg_connected_ == ESP_OK) && (!network::is_connected())) {
-    ESP_LOGV(TAG, "Network lost, stopping WireGuard");
+    ESP_LOGV(TAG, "Local network connection has been lost, stopping");
     this->stop_connection_();
   }
 #endif
@@ -257,6 +255,7 @@ time_t Wireguard::get_latest_handshake() const {
 #endif
 }
 
+#ifndef USE_RP2040
 void Wireguard::set_keepalive(const uint16_t seconds) { this->keepalive_ = seconds; }
 void Wireguard::set_reboot_timeout(const uint32_t seconds) { this->reboot_timeout_ = seconds; }
 void Wireguard::set_srctime(time::RealTimeClock *srctime) { this->srctime_ = srctime; }
@@ -272,6 +271,7 @@ void Wireguard::set_handshake_sensor(sensor::Sensor *sensor) { this->handshake_s
 
 #ifdef USE_TEXT_SENSOR
 void Wireguard::set_address_sensor(text_sensor::TextSensor *sensor) { this->address_sensor_ = sensor; }
+#endif
 #endif
 
 // ---------------------------------------------------------------------------
