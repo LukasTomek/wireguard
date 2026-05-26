@@ -23,6 +23,8 @@ CONF_WIREGUARD_ID = "wireguard_id"
 DEPENDENCIES = ["time"]
 CODEOWNERS = ["@lhoracek", "@droscy", "@thomas0bernard"]
 
+# The key validation regex has been described by Jason Donenfeld himself
+# url: https://lists.zx2c4.com/pipermail/wireguard/2020-December/006222.html
 _WG_KEY_REGEX = re.compile(r"^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw480]=$")
 
 wireguard_ns = cg.esphome_ns.namespace("wireguard")
@@ -124,19 +126,23 @@ async def to_code(config):
     if config[CONF_REQUIRE_CONNECTION_TO_PROCEED]:
         cg.add(var.disable_auto_proceed())
 
+    # Workaround for crash on IDF 5+
+    # See https://github.com/trombik/esp_wireguard/issues/33#issuecomment-1568503651
+    if CORE.is_esp32:
+        add_idf_sdkconfig_option("CONFIG_LWIP_PPP_SUPPORT", True)
+
+    # This flag is added here because the esp_wireguard library statically
+    # set the size of its allowed_ips list at compile time using this value;
+    # the '+1' modifier is relative to the device's own address that will
+    # be automatically added to the provided list.
+    cg.add_build_flag(f"-DCONFIG_WIREGUARD_MAX_SRC_IPS={len(allowed_ips) + 1}")
+
     if CORE.is_rp2040:
-        # RP2040 path: use WireGuard-ESP32-Arduino (pure lwIP, no IDF needed)
-        cg.add_library("jaszczurtd/arduino-wireguard-pico-w", "0.1.6")
-        cg.add_build_flag(f"-DCONFIG_WIREGUARD_MAX_SRC_IPS={len(allowed_ips) + 1}")
+        # RP2040 path: use WireGuard-Raspberry Pi Pico W (pure lwIP, no IDF needed)
+        cg.add_library("https://github.com/jaszczurtd/arduino-wireguard-pico-w.git", "0.1.6")
     else:
         # Original ESP32/ESP8266/BK72xx path
-        # Workaround for crash on IDF 5+
-        # See https://github.com/trombik/esp_wireguard/issues/33#issuecomment-1568503651
-        if CORE.is_esp32:
-            from esphome.components.esp32 import add_idf_sdkconfig_option
-            add_idf_sdkconfig_option("CONFIG_LWIP_PPP_SUPPORT", True)
-
-        cg.add_build_flag(f"-DCONFIG_WIREGUARD_MAX_SRC_IPS={len(allowed_ips) + 1}")
+        from esphome.components.esp32 import add_idf_sdkconfig_option
         cg.add_library("droscy/esp_wireguard", "0.4.5")
 
     await cg.register_component(var, config)
