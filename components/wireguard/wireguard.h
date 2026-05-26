@@ -156,6 +156,7 @@ class Wireguard : public PollingComponent {
 
   esp_err_t wg_initialized_ = ESP_FAIL;
   esp_err_t wg_connected_ = ESP_FAIL;
+#endif
 
   /// The last time the remote peer become offline.
   uint32_t wg_peer_offline_time_ = 0;
