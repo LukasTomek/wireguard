@@ -15,13 +15,13 @@ from esphome.const import (
     CONF_ID,
     CONF_TIME_ID,
     ENTITY_CATEGORY_DIAGNOSTIC,
-    ICON_NETWORK,
-    UNIT_EMPTY,
 )
-
-# CONF_ENABLED is not in esphome.const – define it locally
-CONF_ENABLED = "enabled"
 from esphome.core import CORE
+
+# Define locally – not reliably present in esphome.const across all versions
+CONF_ENABLED  = "enabled"
+ICON_NETWORK  = "mdi:network"
+UNIT_EMPTY    = ""
 
 # -----------------------------------------------------------------------
 # Supported platforms
@@ -108,7 +108,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_REQUIRE_CONNECTION_TO_PROCEED, default=False): cv.boolean,
 
             # Sensors
-            cv.Optional(CONF_STATUS_SENSOR):    binary_sensor.binary_sensor_schema(
+            cv.Optional(CONF_STATUS_SENSOR): binary_sensor.binary_sensor_schema(
                 icon=ICON_NETWORK,
                 entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
             ),
@@ -137,10 +137,10 @@ def _get_lib_deps():
     if CORE.is_rp2040:
         # ciniml's WireGuard-ESP32-Arduino works on any lwIP platform.
         # The arduino-pico core ships lwIP so this compiles cleanly.
-        return ["ciniml/WireGuard-ESP32-Arduino@^0.3.1"]
+        return [("ciniml/WireGuard-ESP32-Arduino", "^0.3.1")]
     else:
         # Upstream esp_wireguard (IDF component / Arduino wrapper)
-        return ["droscy/esp_wireguard@^0.3.3"]
+        return [("droscy/esp_wireguard", "^0.3.3")]
 
 # -----------------------------------------------------------------------
 # Code generation
@@ -199,8 +199,8 @@ async def to_code(config):
         cg.add(var.set_address_sensor(sens))
 
     # Platform-specific library
-    for lib in _get_lib_deps():
-        cg.add_library(*lib.split("@", 1) if "@" in lib else (lib, None))
+    for name, version in _get_lib_deps():
+        cg.add_library(name, version)
 
     # Tell ESPHome to define USE_WIREGUARD
     cg.add_define("USE_WIREGUARD")
