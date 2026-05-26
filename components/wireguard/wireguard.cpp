@@ -13,6 +13,12 @@
 #ifdef USE_RP2040
   #include <hardware/watchdog.h>
   #include <IPAddress.h>
+  // lwIP peer status check – same underlying function used by WireGuard-ESP32
+  extern "C" {
+    #include "wireguardif.h"
+  }
+  extern struct netif *wg_netif;
+  extern uint8_t wireguard_peer_index;
 #endif
 
 namespace esphome {
@@ -218,12 +224,18 @@ bool Wireguard::can_proceed() { return (this->proceed_allowed_ || this->is_peer_
 // ---------------------------------------------------------------------------
 // is_peer_up() / get_latest_handshake()
 // ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
 bool Wireguard::is_peer_up() const {
 #ifdef USE_RP2040
   if (!this->wg_initialized_ || !this->wg_connected_)
     return false;
-  return const_cast<WireGuard &>(this->wg_instance_).connected();
+  // Use the same lwIP wireguardif function the library uses internally.
+  // wg_netif and wireguard_peer_index are exported by the library.
+  if (wg_netif == nullptr || wireguard_peer_index == WIREGUARDIF_INVALID_INDEX)
+    return false;
+  ip_addr_t current_ip;
+  u16_t current_port;
+  return wireguardif_peer_is_up(wg_netif, wireguard_peer_index,
+                                 &current_ip, &current_port) == ERR_OK;
 #else
   return (this->wg_initialized_ == ESP_OK) &&
          (this->wg_connected_   == ESP_OK) &&
@@ -319,39 +331,28 @@ void Wireguard::start_connection_() {
 
 #ifdef USE_RP2040
   // jaszczurtd/arduino-wireguard-pico-w API:
-  //   bool beginAdvanced(IPAddress localIP,
-  //                      const char* privateKey,
-  //                      const char* remotePeerAddress,
-  //                      const char* remotePeerPublicKey,
-  //                      uint16_t remotePeerPort,
-  //                      IPAddress allowedIP,
-  //                      IPAddress allowedMask)
+  //   bool begin(const IPAddress& localIP,
+  //              const char* privateKey,
+  //              const char* remotePeerAddress,
+  //              const char* remotePeerPublicKey,
+  //              uint16_t remotePeerPort)
+  // Subnet and gateway default to 255.255.255.255 / 0.0.0.0 in the 5-arg overload.
   IPAddress local_ip;
   local_ip.fromString(this->address_);
 
-  // Use first allowed IP entry (ESPHome collapses the list in __init__.py)
-  IPAddress allowed_ip(0, 0, 0, 0);
-  IPAddress allowed_mask(0, 0, 0, 0);
-  if (this->allowed_ips_.size() > 0) {
-    allowed_ip.fromString(this->allowed_ips_[0].ip);
-    allowed_mask.fromString(this->allowed_ips_[0].netmask);
-  }
-
   ESP_LOGD(TAG, "Starting WireGuard connection (RP2040/Pico W)");
   suspend_wdt();
-  bool ok = this->wg_instance_.beginAdvanced(
+  bool ok = this->wg_instance_.begin(
     local_ip,
     this->private_key_,
     this->peer_endpoint_,
     this->peer_public_key_,
-    this->peer_port_,
-    allowed_ip,
-    allowed_mask
+    this->peer_port_
   );
   resume_wdt();
 
   if (!ok) {
-    ESP_LOGW(TAG, "beginAdvanced() failed, will retry");
+    ESP_LOGW(TAG, "begin() failed, will retry");
     return;
   }
 
