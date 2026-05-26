@@ -13,34 +13,20 @@
 #ifdef USE_BINARY_SENSOR
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #endif
-
 #ifdef USE_SENSOR
 #include "esphome/components/sensor/sensor.h"
 #endif
-
 #ifdef USE_TEXT_SENSOR
 #include "esphome/components/text_sensor/text_sensor.h"
 #endif
 
 // ---------------------------------------------------------------------------
 // Platform abstraction
-//
-// On ESP32/ESP8266/BK72xx the upstream component uses the Espressif
-// esp_wireguard library which calls into the IDF / lwIP stack directly.
-// On RP2040 (arduino-pico / CYW43 / lwIP) we use the WireGuard-ESP32 port
-// that has been adapted to plain lwIP – the same C API is exposed, but we
-// have to include a different header and link a different library.
 // ---------------------------------------------------------------------------
-
 #ifdef USE_RP2040
-  // wireguard-lwip: pure-C lwIP WireGuard implementation
-  // https://github.com/ciniml/WireGuard-ESP32-Arduino
-  // (also works on arduino-pico with the lwIP stack)
-  //#include <WireGuard-ESP32.h>   // exposes WireGuard C++ class from that lib
-  // We re-use the library's C++ class internally but wrap it in the same
-  // ESPHome component interface as the upstream component so that the rest
-  // of ESPHome (OTA, API, …) is unaffected.
-  #define WG_USE_LWIP_DIRECTLY   // flag used in wireguard.cpp
+  // Dedicated Pico W port of WireGuard-ESP32 by jaszczurtd
+  // https://github.com/jaszczurtd/arduino-wireguard-pico-w
+  #include <arduino-wireguard-pico-w.h>
 #else
   #include <esp_wireguard.h>
   #include <esp_wireguard_err.h>
@@ -55,18 +41,7 @@ struct AllowedIP {
   const char *netmask;
 };
 
-static constexpr size_t MASK_KEY_BUFFER_SIZE = 12;
-
-/** Strip most of the key for secure log printing. */
-void mask_key_to(char *buffer, size_t len, const char *key);
-
-// Suspend / resume WDT around blocking DNS (platform-specific implementations
-// in wireguard.cpp).
-void suspend_wdt();
-void resume_wdt();
-
-// ---------------------------------------------------------------------------
-
+/// Main Wireguard component class.
 class Wireguard : public PollingComponent {
  public:
   void setup() override;
@@ -78,43 +53,27 @@ class Wireguard : public PollingComponent {
 
   float get_setup_priority() const override { return esphome::setup_priority::BEFORE_CONNECTION; }
 
-  // ----- setters (const char* only – std::string overloads are deleted to
-  //               prevent dangling pointers just like the upstream component) -----
-  void set_address(const char *address) { this->address_ = address; }
-  void set_netmask(const char *netmask) { this->netmask_ = netmask; }
-  void set_private_key(const char *key) { this->private_key_ = key; }
-  void set_peer_endpoint(const char *endpoint) { this->peer_endpoint_ = endpoint; }
-  void set_peer_public_key(const char *key) { this->peer_public_key_ = key; }
-  void set_peer_port(uint16_t port) { this->peer_port_ = port; }
-  void set_preshared_key(const char *key) { this->preshared_key_ = key; }
-
-  /// Prevent accidental use of std::string which would dangle
-  void set_address(const std::string &address) = delete;
-  void set_netmask(const std::string &netmask) = delete;
-  void set_private_key(const std::string &key) = delete;
-  void set_peer_endpoint(const std::string &endpoint) = delete;
-  void set_peer_public_key(const std::string &key) = delete;
-  void set_preshared_key(const std::string &key) = delete;
-
+  void set_address(const char *address)       { this->address_       = address; }
+  void set_netmask(const char *netmask)       { this->netmask_       = netmask; }
+  void set_private_key(const char *key)       { this->private_key_   = key; }
+  void set_peer_endpoint(const char *ep)      { this->peer_endpoint_ = ep; }
+  void set_peer_public_key(const char *key)   { this->peer_public_key_ = key; }
+  void set_peer_port(uint16_t port)           { this->peer_port_     = port; }
+  void set_preshared_key(const char *key)     { this->preshared_key_ = key; }
   void set_allowed_ips(std::initializer_list<AllowedIP> ips) { this->allowed_ips_ = ips; }
-  /// Prevent accidental use of std::string which would dangle
-  void set_allowed_ips(std::initializer_list<std::tuple<std::string, std::string>> ips) = delete;
-
-  void set_keepalive(uint16_t seconds);
-  void set_reboot_timeout(uint32_t seconds);
-  void set_srctime(time::RealTimeClock *srctime);
+  void set_keepalive(uint16_t seconds)        { this->keepalive_     = seconds; }
+  void set_reboot_timeout(uint32_t ms)        { this->reboot_timeout_ = ms; }
+  void set_srctime(time::RealTimeClock *t)    { this->srctime_       = t; }
 
 #ifdef USE_BINARY_SENSOR
-  void set_status_sensor(binary_sensor::BinarySensor *sensor);
-  void set_enabled_sensor(binary_sensor::BinarySensor *sensor);
+  void set_status_sensor(binary_sensor::BinarySensor *s)  { this->status_sensor_  = s; }
+  void set_enabled_sensor(binary_sensor::BinarySensor *s) { this->enabled_sensor_ = s; }
 #endif
-
 #ifdef USE_SENSOR
-  void set_handshake_sensor(sensor::Sensor *sensor);
+  void set_handshake_sensor(sensor::Sensor *s) { this->handshake_sensor_ = s; }
 #endif
-
 #ifdef USE_TEXT_SENSOR
-  void set_address_sensor(text_sensor::TextSensor *sensor);
+  void set_address_sensor(text_sensor::TextSensor *s) { this->address_sensor_ = s; }
 #endif
 
   /// Block the setup step until peer is connected.
@@ -155,11 +114,9 @@ class Wireguard : public PollingComponent {
   binary_sensor::BinarySensor *status_sensor_{nullptr};
   binary_sensor::BinarySensor *enabled_sensor_{nullptr};
 #endif
-
 #ifdef USE_SENSOR
   sensor::Sensor *handshake_sensor_{nullptr};
 #endif
-
 #ifdef USE_TEXT_SENSOR
   text_sensor::TextSensor *address_sensor_{nullptr};
 #endif
@@ -167,17 +124,10 @@ class Wireguard : public PollingComponent {
   bool proceed_allowed_{true};
   bool enabled_{true};
 
-  // ---- platform-specific state ----
 #ifdef USE_RP2040
-  // WireGuard-ESP32 C++ wrapper; works on any lwIP platform including RP2040
   WireGuard wg_instance_;
-  bool      wg_connected_{false};
   bool      wg_initialized_{false};
-
-  // We track handshake time ourselves because the arduino-pico library does
-  // not expose a direct "latest handshake" API in the same way the IDF does.
-  // The library's isConnected() returning true after the first keepalive is
-  // our proxy for a successful handshake.
+  bool      wg_connected_{false};
   time_t    latest_handshake_approx_{0};
 #else
   wireguard_config_t wg_config_ = ESP_WIREGUARD_CONFIG_DEFAULT();
@@ -186,37 +136,51 @@ class Wireguard : public PollingComponent {
   esp_err_t          wg_connected_{ESP_FAIL};
 #endif
 
-  uint32_t wg_peer_offline_time_{0};
-  time_t   latest_saved_handshake_{0};
+  /// The last time the remote peer become offline.
+  uint32_t wg_peer_offline_time_ = 0;
+
+  /** \brief The latest saved handshake.
+   *
+   * This is used to save (and log) the latest completed handshake even
+   * after a full refresh of the wireguard keys (for example after a
+   * stop/start connection cycle).
+   */
+  time_t latest_saved_handshake_ = 0;
 
   void start_connection_();
   void stop_connection_();
 };
 
-// ---------------------------------------------------------------------------
-// Automation helpers (identical to upstream)
-// ---------------------------------------------------------------------------
+// These are used for possibly long DNS resolution to temporarily suspend the watchdog
+void suspend_wdt();
+void resume_wdt();
 
-template<typename... Ts>
-class WireguardPeerOnlineCondition : public Condition<Ts...>, public Parented<Wireguard> {
+/// Size of buffer required for mask_key_to: 5 chars + "[...]=" + null = 12
+static constexpr size_t MASK_KEY_BUFFER_SIZE = 12;
+
+/// Strip most part of the key only for secure printing
+void mask_key_to(char *buffer, size_t len, const char *key);
+
+/// Condition to check if remote peer is online.
+template<typename... Ts> class WireguardPeerOnlineCondition : public Condition<Ts...>, public Parented<Wireguard> {
  public:
   bool check(const Ts &...x) override { return this->parent_->is_peer_up(); }
 };
 
-template<typename... Ts>
-class WireguardEnabledCondition : public Condition<Ts...>, public Parented<Wireguard> {
+/// Condition to check if Wireguard component is enabled.
+template<typename... Ts> class WireguardEnabledCondition : public Condition<Ts...>, public Parented<Wireguard> {
  public:
   bool check(const Ts &...x) override { return this->parent_->is_enabled(); }
 };
 
-template<typename... Ts>
-class WireguardEnableAction : public Action<Ts...>, public Parented<Wireguard> {
+/// Action to enable Wireguard component.
+template<typename... Ts> class WireguardEnableAction : public Action<Ts...>, public Parented<Wireguard> {
  public:
   void play(const Ts &...x) override { this->parent_->enable(); }
 };
 
-template<typename... Ts>
-class WireguardDisableAction : public Action<Ts...>, public Parented<Wireguard> {
+/// Action to disable Wireguard component.
+template<typename... Ts> class WireguardDisableAction : public Action<Ts...>, public Parented<Wireguard> {
  public:
   void play(const Ts &...x) override { this->parent_->disable(); }
 };
