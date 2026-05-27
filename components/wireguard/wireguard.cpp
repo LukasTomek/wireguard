@@ -351,28 +351,39 @@ void Wireguard::start_connection_() {
 
 #ifdef USE_RP2040
   // jaszczurtd/arduino-wireguard-pico-w API:
-  //   bool begin(const IPAddress& localIP,
-  //              const char* privateKey,
-  //              const char* remotePeerAddress,
-  //              const char* remotePeerPublicKey,
-  //              uint16_t remotePeerPort)
-  // Subnet and gateway default to 255.255.255.255 / 0.0.0.0 in the 5-arg overload.
+  //   bool beginAdvanced(IPAddress localIP,
+  //                      const char* privateKey,
+  //                      const char* remotePeerAddress,
+  //                      const char* remotePeerPublicKey,
+  //                      uint16_t remotePeerPort,
+  //                      IPAddress allowedIP,
+  //                      IPAddress allowedMask)
   IPAddress local_ip;
   local_ip.fromString(this->address_);
 
+  // Use first allowed IP entry (ESPHome collapses the list in __init__.py)
+  IPAddress allowed_ip(0, 0, 0, 0);
+  IPAddress allowed_mask(0, 0, 0, 0);
+  if (this->allowed_ips_.size() > 0) {
+    allowed_ip.fromString(this->allowed_ips_[0].ip);
+    allowed_mask.fromString(this->allowed_ips_[0].netmask);
+  }
+
   ESP_LOGD(TAG, "Starting WireGuard connection (RP2040/Pico W)");
   suspend_wdt();
-  bool ok = this->wg_instance_.begin(
+  bool ok = this->wg_instance_.beginAdvanced(
     local_ip,
     this->private_key_,
     this->peer_endpoint_,
     this->peer_public_key_,
-    this->peer_port_
+    this->peer_port_,
+    allowed_ip,
+    allowed_mask
   );
   resume_wdt();
 
   if (!ok) {
-    ESP_LOGW(TAG, "begin() failed, will retry");
+    ESP_LOGW(TAG, "beginAdvanced() failed, will retry");
     return;
   }
 
