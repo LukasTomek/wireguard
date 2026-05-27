@@ -13,6 +13,12 @@
 #ifdef USE_RP2040
   #include <hardware/watchdog.h>
   #include <IPAddress.h>
+  // lwIP peer status check – same underlying function used by WireGuard-ESP32
+  extern "C" {
+    #include "wireguardif.h"
+  }
+  extern struct netif *wg_netif;
+  extern uint8_t wireguard_peer_index;
 #endif
 
 namespace esphome {
@@ -32,38 +38,11 @@ static const char *const LOGMSG_OFFLINE = "offline";
 // ---------------------------------------------------------------------------
 // WDT helpers
 // ---------------------------------------------------------------------------
-void Wireguard::set_address(const char *address)     { this->address_         = address; }
-void Wireguard::set_netmask(const char *netmask)     { this->netmask_         = netmask; }
-void Wireguard::set_private_key(const char *key)     { this->private_key_     = key; }
-void Wireguard::set_peer_endpoint(const char *ep)    { this->peer_endpoint_   = ep; }
-void Wireguard::set_peer_public_key(const char *key) { this->peer_public_key_ = key; }
-void Wireguard::set_peer_port(uint16_t port)         { this->peer_port_       = port; }
-void Wireguard::set_preshared_key(const char *key)   { this->preshared_key_   = key; }
-void Wireguard::set_keepalive(uint16_t seconds)      { this->keepalive_       = seconds; }
-void Wireguard::set_reboot_timeout(uint32_t ms)      { this->reboot_timeout_  = ms; }
-void Wireguard::set_srctime(time::RealTimeClock *t)  { this->srctime_         = t; }
-void Wireguard::set_allowed_ips(std::initializer_list<AllowedIP> ips) { this->allowed_ips_ = ips; }
-
-#ifdef USE_BINARY_SENSOR
-void Wireguard::set_status_sensor(binary_sensor::BinarySensor *s)  { this->status_sensor_  = s; }
-void Wireguard::set_enabled_sensor(binary_sensor::BinarySensor *s) { this->enabled_sensor_ = s; }
-#endif
-#ifdef USE_SENSOR
-void Wireguard::set_handshake_sensor(sensor::Sensor *s) { this->handshake_sensor_ = s; }
-#endif
-#ifdef USE_TEXT_SENSOR
-void Wireguard::set_address_sensor(text_sensor::TextSensor *s) { this->address_sensor_ = s; }
-#endif
-
-// ---------------------------------------------------------------------------
-// WDT helpers
-// ---------------------------------------------------------------------------
 #ifdef USE_RP2040
 void suspend_wdt() { watchdog_update(); }
 void resume_wdt()  { watchdog_update(); }
 #else
-void suspend_wdt() {}
-void resume_wdt()  {}
+
 #endif
 
 // ---------------------------------------------------------------------------
@@ -105,7 +84,7 @@ void Wireguard::setup() {
     ESP_LOGI(TAG, "Initialized");
     this->wg_peer_offline_time_ = millis();
     this->srctime_->add_on_time_sync_callback([this]() { this->start_connection_(); });
-    this->defer([this]() { this->start_connection_(); });
+    this->defer([this]() { this->start_connection_(); });  // defer to avoid blocking setup
 
 #ifdef USE_TEXT_SENSOR
     if (this->address_sensor_ != nullptr) {
@@ -134,7 +113,7 @@ void Wireguard::loop() {
   }
 #else
   if ((this->wg_initialized_ == ESP_OK) && (this->wg_connected_ == ESP_OK) && (!network::is_connected())) {
-    ESP_LOGV(TAG, "Network lost, stopping WireGuard");
+    ESP_LOGV(TAG, "Local network connection has been lost, stopping");
     this->stop_connection_();
   }
 #endif
@@ -144,8 +123,8 @@ void Wireguard::loop() {
 // update()
 // ---------------------------------------------------------------------------
 void Wireguard::update() {
-  bool peer_up     = this->is_peer_up();
-  time_t lhs       = this->get_latest_handshake();
+  bool peer_up = this->is_peer_up();
+  time_t lhs = this->get_latest_handshake();
   bool lhs_updated = (lhs > this->latest_saved_handshake_);
 
   if (lhs_updated)
@@ -175,7 +154,7 @@ void Wireguard::update() {
     // check reboot timeout every time the peer is down
     if (this->enabled_ && this->reboot_timeout_ > 0) {
       if (millis() - this->wg_peer_offline_time_ > this->reboot_timeout_) {
-        ESP_LOGE(TAG, "Remote peer unreachable, rebooting");
+        ESP_LOGE(TAG, "Remote peer is unreachable; rebooting");
         App.reboot();
       }
     }
@@ -200,12 +179,12 @@ void Wireguard::update() {
 void Wireguard::dump_config() {
   char private_key_masked[MASK_KEY_BUFFER_SIZE];
   char preshared_key_masked[MASK_KEY_BUFFER_SIZE];
-  mask_key_to(private_key_masked,   sizeof(private_key_masked),   this->private_key_);
+  mask_key_to(private_key_masked, sizeof(private_key_masked), this->private_key_);
   mask_key_to(preshared_key_masked, sizeof(preshared_key_masked), this->preshared_key_);
-
+  // clang-format off
   ESP_LOGCONFIG(
       TAG,
-    "WireGuard:\n"
+      "WireGuard:\n"
     "  Address: %s\n"
     "  Netmask: %s\n"
     "  Private Key:         " LOG_SECRET("%s") "\n"
@@ -244,13 +223,18 @@ bool Wireguard::can_proceed() { return (this->proceed_allowed_ || this->is_peer_
 // ---------------------------------------------------------------------------
 // is_peer_up() / get_latest_handshake()
 // ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
 bool Wireguard::is_peer_up() const {
 #ifdef USE_RP2040
-  // The Pico W WireGuard library used here does not expose a stable "connected()"
-  // status API across versions. We track connection state ourselves via
-  // wg_connected_ (set on beginAdvanced() success, cleared on end()).
-  return this->wg_initialized_ && this->wg_connected_;
+  if (!this->wg_initialized_ || !this->wg_connected_)
+    return false;
+  // Use the same lwIP wireguardif function the library uses internally.
+  // wg_netif and wireguard_peer_index are exported by the library.
+  if (wg_netif == nullptr || wireguard_peer_index == WIREGUARDIF_INVALID_INDEX)
+    return false;
+  ip_addr_t current_ip;
+  u16_t current_port;
+  return wireguardif_peer_is_up(wg_netif, wireguard_peer_index,
+                                 &current_ip, &current_port) == ERR_OK;
 #else
   return (this->wg_initialized_ == ESP_OK) &&
          (this->wg_connected_   == ESP_OK) &&
@@ -272,6 +256,24 @@ time_t Wireguard::get_latest_handshake() const {
 #endif
 }
 
+void Wireguard::set_keepalive(const uint16_t seconds) { this->keepalive_ = seconds; }
+void Wireguard::set_reboot_timeout(const uint32_t seconds) { this->reboot_timeout_ = seconds; }
+void Wireguard::set_srctime(time::RealTimeClock *srctime) { this->srctime_ = srctime; }
+
+#ifdef USE_BINARY_SENSOR
+void Wireguard::set_status_sensor(binary_sensor::BinarySensor *sensor) { this->status_sensor_ = sensor; }
+void Wireguard::set_enabled_sensor(binary_sensor::BinarySensor *sensor) { this->enabled_sensor_ = sensor; }
+#endif
+
+#ifdef USE_SENSOR
+void Wireguard::set_handshake_sensor(sensor::Sensor *sensor) { this->handshake_sensor_ = sensor; }
+#endif
+
+#ifdef USE_TEXT_SENSOR
+void Wireguard::set_address_sensor(text_sensor::TextSensor *sensor) { this->address_sensor_ = sensor; }
+#endif
+
+
 // ---------------------------------------------------------------------------
 // enable() / disable()
 // ---------------------------------------------------------------------------
@@ -286,7 +288,7 @@ void Wireguard::enable() {
 
 void Wireguard::disable() {
   this->enabled_ = false;
-  this->defer([this]() { this->stop_connection_(); });
+  this->defer([this]() { this->stop_connection_(); });  // defer to avoid blocking running loop
   ESP_LOGI(TAG, "Disabled");
   this->publish_enabled_state();
 }
@@ -299,7 +301,7 @@ void Wireguard::publish_enabled_state() {
 #endif
 }
 
-bool Wireguard::is_enabled()           { return this->enabled_; }
+bool Wireguard::is_enabled() { return this->enabled_; }
 
 // ---------------------------------------------------------------------------
 // start_connection_()
@@ -346,39 +348,28 @@ void Wireguard::start_connection_() {
 
 #ifdef USE_RP2040
   // jaszczurtd/arduino-wireguard-pico-w API:
-  //   bool beginAdvanced(IPAddress localIP,
-  //                      const char* privateKey,
-  //                      const char* remotePeerAddress,
-  //                      const char* remotePeerPublicKey,
-  //                      uint16_t remotePeerPort,
-  //                      IPAddress allowedIP,
-  //                      IPAddress allowedMask)
+  //   bool begin(const IPAddress& localIP,
+  //              const char* privateKey,
+  //              const char* remotePeerAddress,
+  //              const char* remotePeerPublicKey,
+  //              uint16_t remotePeerPort)
+  // Subnet and gateway default to 255.255.255.255 / 0.0.0.0 in the 5-arg overload.
   IPAddress local_ip;
   local_ip.fromString(this->address_);
 
-  // Use first allowed IP entry (ESPHome collapses the list in __init__.py)
-  IPAddress allowed_ip(0, 0, 0, 0);
-  IPAddress allowed_mask(0, 0, 0, 0);
-  if (this->allowed_ips_.size() > 0) {
-    allowed_ip.fromString(this->allowed_ips_[0].ip);
-    allowed_mask.fromString(this->allowed_ips_[0].netmask);
-  }
-
   ESP_LOGD(TAG, "Starting WireGuard connection (RP2040/Pico W)");
   suspend_wdt();
-  bool ok = this->wg_instance_.beginAdvanced(
+  bool ok = this->wg_instance_.begin(
     local_ip,
     this->private_key_,
     this->peer_endpoint_,
     this->peer_public_key_,
-    this->peer_port_,
-    allowed_ip,
-    allowed_mask
+    this->peer_port_
   );
   resume_wdt();
 
   if (!ok) {
-    ESP_LOGW(TAG, "beginAdvanced() failed, will retry");
+    ESP_LOGW(TAG, "begin() failed, will retry");
     return;
   }
 
