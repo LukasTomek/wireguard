@@ -17,7 +17,8 @@
   extern "C" {
     #include "wireguardif.h"
   }
-  extern struct netif *wg_netif;
+  
+  struct netif *wg_netif;
   extern uint8_t wireguard_peer_index;
 #endif
 
