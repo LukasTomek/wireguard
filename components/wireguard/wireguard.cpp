@@ -42,7 +42,10 @@ static const char *const LOGMSG_OFFLINE = "offline";
 void suspend_wdt() { watchdog_update(); }
 void resume_wdt()  { watchdog_update(); }
 #else
+<<<<<<< HEAD
 
+=======
+>>>>>>> 62828e39c36f1c9354ba0172ca8f6308c559c24d
 #endif
 
 // ---------------------------------------------------------------------------
@@ -185,11 +188,19 @@ void Wireguard::dump_config() {
   ESP_LOGCONFIG(
       TAG,
       "WireGuard:\n"
+<<<<<<< HEAD
     "  Address: %s\n"
     "  Netmask: %s\n"
     "  Private Key:         " LOG_SECRET("%s") "\n"
     "  Peer Endpoint: " LOG_SECRET("%s") "\n"
     "  Peer Port: " LOG_SECRET("%d") "\n"
+=======
+      "  Address: %s\n"
+      "  Netmask: %s\n"
+      "  Private Key: " LOG_SECRET("%s") "\n"
+      "  Peer Endpoint: " LOG_SECRET("%s") "\n"
+      "  Peer Port: " LOG_SECRET("%d") "\n"
+>>>>>>> 62828e39c36f1c9354ba0172ca8f6308c559c24d
     "  Peer Public Key:     " LOG_SECRET("%s") "\n"
     "  Peer Preshared Key:  " LOG_SECRET("%s") "\n"
     "  Platform:            %s",
@@ -256,6 +267,10 @@ time_t Wireguard::get_latest_handshake() const {
 #endif
 }
 
+<<<<<<< HEAD
+=======
+#ifndef USE_RP2040
+>>>>>>> 62828e39c36f1c9354ba0172ca8f6308c559c24d
 void Wireguard::set_keepalive(const uint16_t seconds) { this->keepalive_ = seconds; }
 void Wireguard::set_reboot_timeout(const uint32_t seconds) { this->reboot_timeout_ = seconds; }
 void Wireguard::set_srctime(time::RealTimeClock *srctime) { this->srctime_ = srctime; }
@@ -272,7 +287,11 @@ void Wireguard::set_handshake_sensor(sensor::Sensor *sensor) { this->handshake_s
 #ifdef USE_TEXT_SENSOR
 void Wireguard::set_address_sensor(text_sensor::TextSensor *sensor) { this->address_sensor_ = sensor; }
 #endif
+<<<<<<< HEAD
 
+=======
+#endif
+>>>>>>> 62828e39c36f1c9354ba0172ca8f6308c559c24d
 
 // ---------------------------------------------------------------------------
 // enable() / disable()
