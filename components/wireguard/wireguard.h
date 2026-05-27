@@ -53,27 +53,28 @@ class Wireguard : public PollingComponent {
 
   float get_setup_priority() const override { return esphome::setup_priority::BEFORE_CONNECTION; }
 
-  void set_address(const char *address)       { this->address_       = address; }
-  void set_netmask(const char *netmask)       { this->netmask_       = netmask; }
-  void set_private_key(const char *key)       { this->private_key_   = key; }
-  void set_peer_endpoint(const char *ep)      { this->peer_endpoint_ = ep; }
-  void set_peer_public_key(const char *key)   { this->peer_public_key_ = key; }
-  void set_peer_port(uint16_t port)           { this->peer_port_     = port; }
-  void set_preshared_key(const char *key)     { this->preshared_key_ = key; }
-  void set_allowed_ips(std::initializer_list<AllowedIP> ips) { this->allowed_ips_ = ips; }
-  void set_keepalive(uint16_t seconds)        { this->keepalive_     = seconds; }
-  void set_reboot_timeout(uint32_t ms)        { this->reboot_timeout_ = ms; }
-  void set_srctime(time::RealTimeClock *t)    { this->srctime_       = t; }
+  // All setters declared here, defined in wireguard.cpp
+  void set_address(const char *address);
+  void set_netmask(const char *netmask);
+  void set_private_key(const char *key);
+  void set_peer_endpoint(const char *ep);
+  void set_peer_public_key(const char *key);
+  void set_peer_port(uint16_t port);
+  void set_preshared_key(const char *key);
+  void set_allowed_ips(std::initializer_list<AllowedIP> ips);
+  void set_keepalive(uint16_t seconds);
+  void set_reboot_timeout(uint32_t ms);
+  void set_srctime(time::RealTimeClock *t);
 
 #ifdef USE_BINARY_SENSOR
-  void set_status_sensor(binary_sensor::BinarySensor *s)  { this->status_sensor_  = s; }
-  void set_enabled_sensor(binary_sensor::BinarySensor *s) { this->enabled_sensor_ = s; }
+  void set_status_sensor(binary_sensor::BinarySensor *s);
+  void set_enabled_sensor(binary_sensor::BinarySensor *s);
 #endif
 #ifdef USE_SENSOR
-  void set_handshake_sensor(sensor::Sensor *s) { this->handshake_sensor_ = s; }
+  void set_handshake_sensor(sensor::Sensor *s);
 #endif
 #ifdef USE_TEXT_SENSOR
-  void set_address_sensor(text_sensor::TextSensor *s) { this->address_sensor_ = s; }
+  void set_address_sensor(text_sensor::TextSensor *s);
 #endif
 
   /// Block the setup step until peer is connected.

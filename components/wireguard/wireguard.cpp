@@ -32,6 +32,32 @@ static const char *const LOGMSG_OFFLINE = "offline";
 // ---------------------------------------------------------------------------
 // WDT helpers
 // ---------------------------------------------------------------------------
+void Wireguard::set_address(const char *address)     { this->address_         = address; }
+void Wireguard::set_netmask(const char *netmask)     { this->netmask_         = netmask; }
+void Wireguard::set_private_key(const char *key)     { this->private_key_     = key; }
+void Wireguard::set_peer_endpoint(const char *ep)    { this->peer_endpoint_   = ep; }
+void Wireguard::set_peer_public_key(const char *key) { this->peer_public_key_ = key; }
+void Wireguard::set_peer_port(uint16_t port)         { this->peer_port_       = port; }
+void Wireguard::set_preshared_key(const char *key)   { this->preshared_key_   = key; }
+void Wireguard::set_keepalive(uint16_t seconds)      { this->keepalive_       = seconds; }
+void Wireguard::set_reboot_timeout(uint32_t ms)      { this->reboot_timeout_  = ms; }
+void Wireguard::set_srctime(time::RealTimeClock *t)  { this->srctime_         = t; }
+void Wireguard::set_allowed_ips(std::initializer_list<AllowedIP> ips) { this->allowed_ips_ = ips; }
+
+#ifdef USE_BINARY_SENSOR
+void Wireguard::set_status_sensor(binary_sensor::BinarySensor *s)  { this->status_sensor_  = s; }
+void Wireguard::set_enabled_sensor(binary_sensor::BinarySensor *s) { this->enabled_sensor_ = s; }
+#endif
+#ifdef USE_SENSOR
+void Wireguard::set_handshake_sensor(sensor::Sensor *s) { this->handshake_sensor_ = s; }
+#endif
+#ifdef USE_TEXT_SENSOR
+void Wireguard::set_address_sensor(text_sensor::TextSensor *s) { this->address_sensor_ = s; }
+#endif
+
+// ---------------------------------------------------------------------------
+// WDT helpers
+// ---------------------------------------------------------------------------
 #ifdef USE_RP2040
 void suspend_wdt() { watchdog_update(); }
 void resume_wdt()  { watchdog_update(); }
@@ -180,11 +206,11 @@ void Wireguard::dump_config() {
   ESP_LOGCONFIG(
       TAG,
     "WireGuard:\n"
-      "  Address: %s\n"
-      "  Netmask: %s\n"
+    "  Address: %s\n"
+    "  Netmask: %s\n"
     "  Private Key:         " LOG_SECRET("%s") "\n"
-      "  Peer Endpoint: " LOG_SECRET("%s") "\n"
-      "  Peer Port: " LOG_SECRET("%d") "\n"
+    "  Peer Endpoint: " LOG_SECRET("%s") "\n"
+    "  Peer Port: " LOG_SECRET("%d") "\n"
     "  Peer Public Key:     " LOG_SECRET("%s") "\n"
     "  Peer Preshared Key:  " LOG_SECRET("%s") "\n"
     "  Platform:            %s",
@@ -221,9 +247,10 @@ bool Wireguard::can_proceed() { return (this->proceed_allowed_ || this->is_peer_
 // ---------------------------------------------------------------------------
 bool Wireguard::is_peer_up() const {
 #ifdef USE_RP2040
-  if (!this->wg_initialized_ || !this->wg_connected_)
-    return false;
-  return const_cast<WireGuard &>(this->wg_instance_).connected();
+  // The Pico W WireGuard library used here does not expose a stable "connected()"
+  // status API across versions. We track connection state ourselves via
+  // wg_connected_ (set on beginAdvanced() success, cleared on end()).
+  return this->wg_initialized_ && this->wg_connected_;
 #else
   return (this->wg_initialized_ == ESP_OK) &&
          (this->wg_connected_   == ESP_OK) &&
