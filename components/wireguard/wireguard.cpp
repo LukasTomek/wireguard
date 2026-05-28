@@ -130,7 +130,7 @@ void Wireguard::setup() {
 }
 
 void Wireguard::setup1() {
-  delay(5000);
+  delay(5);
   Serial.printf("C1: Red leader standing by...\n");
 }
 
@@ -403,7 +403,8 @@ void Wireguard::start_connection_() {
   this->wg_begin_result_  = false;
   this->wg_begin_pending_ = true;
   s_wg_instance           = this;
-
+  ESP_LOGD(TAG, "Stack size %d", sizeof(this->wg_core1_stack_));
+  ESP_LOGD(TAG, "Stack pointer %p", this->wg_core1_stack_);
   multicore_launch_core1_with_stack(
     Wireguard::core1_entry_,
     this->wg_core1_stack_,
