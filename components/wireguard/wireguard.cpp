@@ -15,7 +15,7 @@
   #include <hardware/watchdog.h>
   #include <pico/multicore.h>
   #include <IPAddress.h>
-
+bool core1_separate_stack = true;
 #endif
 
 // Global pointer used by Core 1 entry function (only one WireGuard instance).
@@ -24,6 +24,7 @@ namespace wireguard {
 
   // Runs on Core 1 – has full access to protected members via s_wg_instance.
 #ifdef USE_RP2040
+
 static Wireguard *s_wg_instance = nullptr;
   // As a static method of the class there are no access restriction issues.
 void Wireguard::core1_entry_() {
