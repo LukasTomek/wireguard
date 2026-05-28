@@ -37,14 +37,14 @@ void Wireguard::core1_entry_() {
   } else {
     gateway = IPAddress(0, 0, 0, 0);
   }
-  bool ok = s_wg_instance->wg_instance_.begin(
+  bool ok = s_wg_instance->wg_instance_.beginAdvanced(
     local_ip,
-    subnet,
-    gateway,
     s_wg_instance->private_key_,
     s_wg_instance->peer_endpoint_,
     s_wg_instance->peer_public_key_,
-    s_wg_instance->peer_port_
+    s_wg_instance->peer_port_,
+    gateway,
+    subnet
   );
   s_wg_instance->wg_begin_result_ = ok;
   s_wg_instance->wg_begin_done_   = true;
