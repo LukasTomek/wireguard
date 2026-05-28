@@ -16,18 +16,14 @@
   #include <IPAddress.h>
 
 // Global pointer used by Core 1 entry function (only one WireGuard instance).
-static esphome::wireguard::Wireguard *s_wg_instance = nullptr;
+namespace esphome {
+namespace wireguard {
 
-void Wireguard::core1_entry_() {
   // Runs on Core 1 – has full access to protected members via s_wg_instance.
+#ifdef USE_RP2040
+static Wireguard *s_wg_instance = nullptr;
   // As a static method of the class there are no access restriction issues.
-  //
-  // Full begin() signature (ciniml/WireGuard-ESP32 API, ported by jaszczurtd):
-  //   bool begin(const IPAddress& localIP,
-  //              const IPAddress& subnet,
-  //              const IPAddress& gateway,
-  //              const char* privateKey,
-  //              const char* remotePeerAddress,
+void Wireguard::core1_entry_() {
   //              const char* remotePeerPublicKey,
   //              uint16_t remotePeerPort)
   IPAddress local_ip, subnet, gateway;
@@ -39,14 +35,14 @@ void Wireguard::core1_entry_() {
   } else {
     gateway = IPAddress(0, 0, 0, 0);
   }
-  bool ok = s_wg_instance->wg_instance_.beginAdvanced(
+  bool ok = s_wg_instance->wg_instance_.begin(
     local_ip,
+    subnet,
+    gateway,
     s_wg_instance->private_key_,
     s_wg_instance->peer_endpoint_,
     s_wg_instance->peer_public_key_,
-    s_wg_instance->peer_port_,
-    gateway,
-    subnet
+    s_wg_instance->peer_port_
   );
   s_wg_instance->wg_begin_result_ = ok;
   s_wg_instance->wg_begin_done_   = true;
@@ -54,9 +50,6 @@ void Wireguard::core1_entry_() {
   while (true) tight_loop_contents();
 }
 #endif
-
-namespace esphome {
-namespace wireguard {
 
 static const char *const TAG = "wireguard";
 
@@ -279,9 +272,7 @@ bool Wireguard::is_peer_up() const {
   // isConnected() dereferences lwIP internal state that is set up
   // asynchronously after begin() returns. Calling it too early causes
   // a hardfault. Wait at least 3 s after begin() before polling.
-  if (millis() - this->wg_peer_offline_time_ < 3000)
-    return false;
-  return const_cast<WireGuard &>(this->wg_instance_).isConnected();
+  return this->wg_connected_;
 #else
   return (this->wg_initialized_ == ESP_OK) &&
          (this->wg_connected_   == ESP_OK) &&
