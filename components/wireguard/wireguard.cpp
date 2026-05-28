@@ -11,6 +11,7 @@
 #include "esphome/core/helpers.h"
 
 #ifdef USE_RP2040
+  #include "pico_stack.h"
   #include <hardware/watchdog.h>
   #include <pico/multicore.h>
   #include <IPAddress.h>
