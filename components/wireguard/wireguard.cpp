@@ -129,6 +129,11 @@ void Wireguard::setup() {
 #endif
 }
 
+void Wireguard::setup1() {
+  delay(5000);
+  Serial.printf("C1: Red leader standing by...\n");
+}
+
 // ---------------------------------------------------------------------------
 // loop()
 // ---------------------------------------------------------------------------
@@ -162,6 +167,11 @@ void Wireguard::loop() {
     this->stop_connection_();
   }
 #endif
+}
+
+void Wireguard::loop1() {
+  Serial.printf("C1: Stay on target...\n");
+  delay(5000);
 }
 
 // ---------------------------------------------------------------------------
