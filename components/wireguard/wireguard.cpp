@@ -15,6 +15,8 @@
   #include <pico/multicore.h>
   #include <IPAddress.h>
 
+#endif
+
 // Global pointer used by Core 1 entry function (only one WireGuard instance).
 namespace esphome {
 namespace wireguard {
