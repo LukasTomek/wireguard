@@ -118,6 +118,7 @@ void Wireguard::setup() {
 void Wireguard::loop() {
   if (!this->enabled_) {
     return;
+}
 
 #ifdef USE_RP2040
   // Pick up result from Core 1 begin() once it finishes
