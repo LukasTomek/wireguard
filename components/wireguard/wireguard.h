@@ -47,7 +47,9 @@ struct AllowedIP {
 class Wireguard : public PollingComponent {
  public:
   void setup() override;
+  void setup1() override;
   void loop() override;
+  void loop1() override;
   void update() override;
   void dump_config() override;
   void on_shutdown() override;
