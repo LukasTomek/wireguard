@@ -11,6 +11,7 @@
 #include "esphome/core/helpers.h"
 
 #ifdef USE_RP2040
+  #include "pico_stack.h"
   #include <hardware/watchdog.h>
   #include <IPAddress.h>
   // lwIP peer status check – same underlying function used by WireGuard-ESP32
