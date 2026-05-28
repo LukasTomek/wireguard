@@ -26,7 +26,6 @@
 // Platform abstraction
 // ---------------------------------------------------------------------------
 #ifdef USE_RP2040
-  #include "Arduino.h"
   // Dedicated Pico W port of WireGuard-ESP32 by jaszczurtd
   // https://github.com/jaszczurtd/arduino-wireguard-pico-w
   #include <arduino-wireguard-pico-w.h>

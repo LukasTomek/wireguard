@@ -20,9 +20,6 @@
   
   struct netif *wg_netif;
   extern uint8_t wireguard_peer_index;
-  // Tells the framework to isolate an independent stack for Core 1.
-  // This frees the shared memory space, expanding Core 0 back to a full 8KB.
-  bool core1_separate_stack = true;
 #endif
 
 namespace esphome {
