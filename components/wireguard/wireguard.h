@@ -155,7 +155,7 @@ class Wireguard : public PollingComponent {
 
   // Core 1 runs begin() with its own 16KB stack to avoid overflowing
   // Core 0's fixed 2KB stack during Curve25519 key generation.
-  static constexpr size_t WG_CORE1_STACK_SIZE = 32 * 1024;
+  static constexpr size_t WG_CORE1_STACK_SIZE = 64 * 1024;
   uint32_t  wg_core1_stack_[WG_CORE1_STACK_SIZE / sizeof(uint32_t)];
   volatile bool wg_begin_done_{false};
   volatile bool wg_begin_result_{false};
