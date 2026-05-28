@@ -18,15 +18,35 @@
 // Global pointer used by Core 1 entry function (only one WireGuard instance).
 static esphome::wireguard::Wireguard *s_wg_instance = nullptr;
 
-static void wg_core1_entry() {
-  IPAddress local_ip;
+void Wireguard::core1_entry_() {
+  // Runs on Core 1 – has full access to protected members via s_wg_instance.
+  // As a static method of the class there are no access restriction issues.
+  //
+  // Full begin() signature (ciniml/WireGuard-ESP32 API, ported by jaszczurtd):
+  //   bool begin(const IPAddress& localIP,
+  //              const IPAddress& subnet,
+  //              const IPAddress& gateway,
+  //              const char* privateKey,
+  //              const char* remotePeerAddress,
+  //              const char* remotePeerPublicKey,
+  //              uint16_t remotePeerPort)
+  IPAddress local_ip, subnet, gateway;
   local_ip.fromString(s_wg_instance->address_);
-  bool ok = s_wg_instance->wg_instance_.begin(
+  subnet.fromString(s_wg_instance->netmask_);
+  // Gateway: use the WireGuard peer IP from allowed_ips[0], or 0.0.0.0
+  if (s_wg_instance->allowed_ips_.size() > 0) {
+    gateway.fromString(s_wg_instance->allowed_ips_[0].ip);
+  } else {
+    gateway = IPAddress(0, 0, 0, 0);
+  }
+  bool ok = s_wg_instance->wg_instance_.beginAdvanced(
     local_ip,
     s_wg_instance->private_key_,
     s_wg_instance->peer_endpoint_,
     s_wg_instance->peer_public_key_,
-    s_wg_instance->peer_port_
+    s_wg_instance->peer_port_,
+    gateway,
+    subnet
   );
   s_wg_instance->wg_begin_result_ = ok;
   s_wg_instance->wg_begin_done_   = true;
@@ -380,7 +400,7 @@ void Wireguard::start_connection_() {
   s_wg_instance           = this;
 
   multicore_launch_core1_with_stack(
-    wg_core1_entry,
+    Wireguard::core1_entry_,
     this->wg_core1_stack_,
     sizeof(this->wg_core1_stack_)
   );

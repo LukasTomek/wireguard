@@ -181,8 +181,7 @@ class Wireguard : public PollingComponent {
   void stop_connection_();
 
 #ifdef USE_RP2040
-  // Core 1 entry needs access to protected members
-  friend void wg_core1_entry();
+  static void core1_entry_();  // runs begin() on Core 1 with full stack access
 #endif
 };
 
