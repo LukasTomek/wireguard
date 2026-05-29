@@ -18,8 +18,6 @@
     #include "wireguardif.h"
   }
   
-  struct netif *wg_netif;
-  extern uint8_t wireguard_peer_index;
   bool core1_separate_stack = true;
 #endif
 extern "C" void setup1()
@@ -240,7 +238,7 @@ bool Wireguard::is_peer_up() const {
     return false;
   IPAddress current_ip;
   u16_t current_port;
-  s8_t result
+  s8_t result;
   result = peerUp(current_ip, &current_port);
   ESP_LOGD(TAG, "wireguardif_peer_is_up = %d, current_ip = %d.%d.%d.%d, current_port = %d", result, current_ip[0], current_ip[1], current_ip[2], current_ip[3], current_port);
   return result == ERR_OK;
