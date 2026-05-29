@@ -20,8 +20,12 @@
   
   struct netif *wg_netif;
   extern uint8_t wireguard_peer_index;
+  bool core1_separate_stack = true;
 #endif
-
+setup1()
+{
+	
+}
 namespace esphome {
 namespace wireguard {
 
