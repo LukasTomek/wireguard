@@ -17,9 +17,6 @@
   #include <IPAddress.h>
 #endif
 
-namespace esphome {
-namespace wireguard {
-
 static const char *const TAG = "wireguard";
 #define LOGMSG_PEER_STATUS "Remote peer is %s (latest handshake %s)"
 static const char *const LOGMSG_ONLINE  = "online";
@@ -37,11 +34,8 @@ static const char *const LOGMSG_OFFLINE = "offline";
 #ifdef USE_RP2040
 
 // Single global instance pointer – there is only ever one WireGuard component.
-static volatile wireguard::Wireguard *s_wg_instance = nullptr;
+static volatile esphome::wireguard::Wireguard *s_wg_instance = nullptr;
 static volatile bool s_wg_core0_ready = false;
-
-}  // namespace wireguard
-}  // namespace esphome
 
 bool core1_separate_stack = true;
 
@@ -58,7 +52,7 @@ void loop1() {
   // Wait until Core 0 setup() has fully completed and registered the instance.
   if (!s_wg_core0_ready || s_wg_instance == nullptr)
     return;
-  auto *wg = const_cast<wireguard::Wireguard *>(s_wg_instance);
+  auto *wg = const_cast<esphome::wireguard::Wireguard *>(s_wg_instance);
   if (!wg->wg_begin_trigger_)
     return;
 
@@ -88,13 +82,11 @@ void loop1() {
   wg->wg_begin_result_ = ok;
   wg->wg_begin_done_   = true;
 }
-
-// Global pointer used by Core 1 entry function (only one WireGuard instance).
-namespace esphome {
-namespace wireguard {
-
 #endif  // USE_RP2040
 
+namespace esphome {
+namespace wireguard {
+// Global pointer used by Core 1 entry function (only one WireGuard instance).
 
 // ---------------------------------------------------------------------------
 // WDT helpers
