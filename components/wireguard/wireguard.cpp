@@ -238,14 +238,12 @@ bool Wireguard::is_peer_up() const {
 #ifdef USE_RP2040
   if (!this->wg_initialized_ || !this->wg_connected_)
     return false;
-  // Use the same lwIP wireguardif function the library uses internally.
-  // wg_netif and wireguard_peer_index are exported by the library.
-  if (wg_netif == nullptr || wireguard_peer_index == WIREGUARDIF_INVALID_INDEX)
-    return false;
-  ip_addr_t current_ip;
+  IPAddress current_ip;
   u16_t current_port;
-  return wireguardif_peer_is_up(wg_netif, wireguard_peer_index,
-                                 &current_ip, &current_port) == ERR_OK;
+  s8_t result
+  result = peerUp(current_ip, &current_port);
+  ESP_LOGD(TAG, "wireguardif_peer_is_up = %d, current_ip = %d.%d.%d.%d, current_port = %d", result, current_ip[0], current_ip[1], current_ip[2], current_ip[3], current_port);
+  return result == ERR_OK;
 #else
   return (this->wg_initialized_ == ESP_OK) &&
          (this->wg_connected_   == ESP_OK) &&
