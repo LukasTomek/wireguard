@@ -153,11 +153,13 @@ class Wireguard : public PollingComponent {
 
   // Core 1 runs begin() with its own 16KB stack to avoid overflowing
   // Core 0's fixed 2KB stack during Curve25519 key generation.
-  static constexpr size_t WG_CORE1_STACK_SIZE = 16 * 1024;
-  uint32_t  wg_core1_stack_[WG_CORE1_STACK_SIZE / sizeof(uint32_t)];
+  // Core 1 runs begin() in loop1() and reports back via wg_begin_done_.
+  // Shared state between Core 0 and Core 1.
+  // Core 0 sets wg_begin_trigger_ = true to request a begin() call.
+  // Core 1 runs begin() in loop1() and reports back via wg_begin_done_.
+  volatile bool wg_begin_trigger_{false};
   volatile bool wg_begin_done_{false};
   volatile bool wg_begin_result_{false};
-  bool      wg_begin_pending_{false};
 #else
   wireguard_config_t wg_config_ = ESP_WIREGUARD_CONFIG_DEFAULT();
   wireguard_ctx_t wg_ctx_ = ESP_WIREGUARD_CONTEXT_DEFAULT();
@@ -180,9 +182,6 @@ class Wireguard : public PollingComponent {
   void start_connection_();
   void stop_connection_();
 
-#ifdef USE_RP2040
-  static void core1_entry_();  // runs begin() on Core 1 with full stack access
-#endif
 };
 
 // These are used for possibly long DNS resolution to temporarily suspend the watchdog
