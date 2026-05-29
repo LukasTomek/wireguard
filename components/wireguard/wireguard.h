@@ -153,6 +153,7 @@ class Wireguard : public PollingComponent {
 
   // Core 1 runs begin() with its own 16KB stack to avoid overflowing
   // Core 0's fixed 2KB stack during Curve25519 key generation.
+
   // Core 1 runs begin() in loop1() and reports back via wg_begin_done_.
   // Shared state between Core 0 and Core 1.
   // Core 0 sets wg_begin_trigger_ = true to request a begin() call.

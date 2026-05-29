@@ -30,12 +30,13 @@ bool core1_separate_stack = true;
 // setup1 / loop1 must be in global scope for arduino-pico to find them.
 void setup1() {
   delay(50);
-  Serial.printf("C1: Red leader standing by...\n");
+  ESP_LOGD(TAG, "C1: Red leader standing by...");
   // Nothing to initialise on Core 1 – just wait for trigger from Core 0.
 }
 
 void loop1() {
   using namespace esphome::wireguard;
+  ESP_LOGD(TAG, "C1: Stay on target...");
   // Wait until Core 0 setup() has fully completed and registered the instance.
   if (!s_wg_core0_ready || s_wg_instance == nullptr)
     return;
