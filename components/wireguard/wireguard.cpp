@@ -132,8 +132,13 @@ void Wireguard::update() {
   time_t lhs = this->get_latest_handshake();
   bool lhs_updated = (lhs > this->latest_saved_handshake_);
 
-  if (lhs_updated)
+  ESP_LOGD(TAG, "initialized=%d, enabled=%d, connected=%d, peer_up=%d, handshake: current=%.0f latest=%.0f updated=%d",
+           (int) this->wg_initialized_, (int) this->enabled_, (int) (this->wg_connected_), (int) peer_up, (double) lhs,
+           (double) this->latest_saved_handshake_, (int) lhs_updated);
+
+  if (lhs_updated) {
     this->latest_saved_handshake_ = lhs;
+  }
 
   std::string latest_handshake =
       (this->latest_saved_handshake_ > 0)
