@@ -17,7 +17,7 @@
   extern "C" {
     #include "wireguardif.h"
   }
-  
+  extern static struct netif *wg_netif;
   bool core1_separate_stack = true;
 #endif
 extern "C" void setup1()
