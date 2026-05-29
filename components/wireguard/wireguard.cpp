@@ -240,8 +240,8 @@ bool Wireguard::is_peer_up() const {
   u16_t current_port;
   s8_t result;
   result = this->wg_instance_.peerUp(&current_ip, &current_port);
-  ESP_LOGD(TAG, "wireguardif_peer_is_up = %d, current_ip = %d.%d.%d.%d, current_port = %d", result, current_ip[0], current_ip[1], current_ip[2], current_ip[3], current_port);
-  return result == ERR_OK;
+  ESP_LOGD(TAG, "peerUp = %d, current_ip = %d.%d.%d.%d, current_port = %d", result, current_ip[0], current_ip[1], current_ip[2], current_ip[3], current_port);
+  return result;
 #else
   return (this->wg_initialized_ == ESP_OK) &&
          (this->wg_connected_   == ESP_OK) &&
