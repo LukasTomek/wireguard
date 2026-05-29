@@ -15,6 +15,15 @@
   #include <hardware/watchdog.h>
   #include <pico/multicore.h>
   #include <IPAddress.h>
+#endif
+
+namespace esphome {
+namespace wireguard {
+
+static const char *const TAG = "wireguard";
+#define LOGMSG_PEER_STATUS "Remote peer is %s (latest handshake %s)"
+static const char *const LOGMSG_ONLINE  = "online";
+static const char *const LOGMSG_OFFLINE = "offline";
 
 // ---------------------------------------------------------------------------
 // RP2040 Core 1 – setup1() / loop1()
@@ -25,6 +34,15 @@
 // Curve25519 key generation needs ~8 KB of stack and Core 0's stack
 // is only 2 KB (baked into the precompiled pico-sdk).
 // ---------------------------------------------------------------------------
+#ifdef USE_RP2040
+
+// Single global instance pointer – there is only ever one WireGuard component.
+static volatile wireguard::Wireguard *s_wg_instance = nullptr;
+static volatile bool s_wg_core0_ready = false;
+
+}  // namespace wireguard
+}  // namespace esphome
+
 bool core1_separate_stack = true;
 
 // setup1 / loop1 must be in global scope for arduino-pico to find them.
@@ -51,7 +69,7 @@ void loop1() {
   local_ip.fromString(wg->address_);
   subnet.fromString(wg->netmask_);
   // Gateway: use the WireGuard peer IP from allowed_ips[0], or 0.0.0.0
-  if (s_wg_instance->allowed_ips_.size() > 0) {
+  if (wg->allowed_ips_.size() > 0) {
     gateway.fromString(wg->allowed_ips_[0].ip);
   } else {
     gateway = IPAddress(0, 0, 0, 0);
@@ -70,30 +88,13 @@ void loop1() {
   wg->wg_begin_result_ = ok;
   wg->wg_begin_done_   = true;
 }
-#endif // USE_RP2040
 
 // Global pointer used by Core 1 entry function (only one WireGuard instance).
 namespace esphome {
 namespace wireguard {
 
-  // Runs on Core 1 – has full access to protected members via s_wg_instance.
-#ifdef USE_RP2040
-// Single global instance pointer – there is only ever one WireGuard component.
-static volatile wireguard::Wireguard *s_wg_instance = nullptr;
-static volatile bool s_wg_core0_ready = false;
+#endif  // USE_RP2040
 
-#endif // USE_RP2040
-
-static const char *const TAG = "wireguard";
-
-/*
- * Cannot use `static const char*` for LOGMSG_PEER_STATUS on esp8266 platform
- * because log messages in `Wireguard::update()` method fail.
- */
-#define LOGMSG_PEER_STATUS "Remote peer is %s (latest handshake %s)"
-
-static const char *const LOGMSG_ONLINE  = "online";
-static const char *const LOGMSG_OFFLINE = "offline";
 
 // ---------------------------------------------------------------------------
 // WDT helpers
