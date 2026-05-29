@@ -3,6 +3,8 @@
 This is a modified version of the official ESPHome `wireguard` component that
 adds support for the **Raspberry Pi Pico W** (and Pico 2W) running on the
 `rp2040` platform with the CYW43 WiFi chip.
+Only the branch OneCoreImplementation somehow work, but get the wrong indisation that peer is off even the comunication is working.
+The optimalization have to be changed see yaml example.
 
 ---
 
@@ -111,6 +113,7 @@ AllowedIPs = 10.6.0.2/32
 | Hardware crypto acceleration | ❌ Software only (CYW43 has no WireGuard offload) |
 | Handshake timestamp sensor | ⚠️ Approximate (captured at connect time, not from the protocol) |
 | OTA updates over tunnel | ✅ Works – set `wifi.use_address` to the WireGuard IP |
+
 
 ### RAM budget
 

@@ -7,7 +7,12 @@
 esphome:
   name: pico-remote
   friendly_name: "Pico W Remote Sensor"
-
+  # Need change optimalization otherwise crypto lib x25519 crash during executing
+  platformio_options:
+    build_type: debug
+    debug_build_flags:
+      - -O2       # Keep high optimization for small binary size
+      - -g1       # Minimal debug info: gives file names and line numbers only
 rp2040:
   board: rpipicow
   framework:
