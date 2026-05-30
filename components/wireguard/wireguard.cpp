@@ -114,6 +114,17 @@ void Wireguard::loop() {
     ESP_LOGV(TAG, "Network lost, stopping WireGuard");
     this->stop_connection_();
   }
+
+  // Persistent keepalive: send an empty UDP packet through the tunnel
+  // at the configured interval so NAT mappings and the peer session stay alive.
+  if (this->keepalive_ > 0 && this->wg_initialized_ && this->wg_connected_) {
+    uint32_t now_ms = millis();
+    uint32_t interval_ms = (uint32_t) this->keepalive_ * 1000u;
+    if (now_ms - this->last_keepalive_ms_ >= interval_ms) {
+      this->wg_instance_.kickHandshake(this->peer_endpoint_, this->peer_port_, interval_ms);
+      this->last_keepalive_ms_ = now_ms;
+    }
+  }
 #else
   if ((this->wg_initialized_ == ESP_OK) && (this->wg_connected_ == ESP_OK) && (!network::is_connected())) {
     ESP_LOGV(TAG, "Local network connection has been lost, stopping");
@@ -395,6 +406,7 @@ void Wireguard::start_connection_() {
   this->wg_connected_            = true;
   this->wg_peer_offline_time_    = millis();
   this->latest_handshake_approx_ = this->srctime_->now().timestamp;
+  this->last_keepalive_ms_       = millis();   // start keepalive timer from now
   ESP_LOGI(TAG, "WireGuard connection started");
 
 #else
