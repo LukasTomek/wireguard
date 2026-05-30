@@ -150,17 +150,8 @@ class Wireguard : public PollingComponent {
   bool      wg_initialized_{false};
   bool      wg_connected_{false};
   time_t    latest_handshake_approx_{0};
-
-  // Core 1 runs begin() with its own 16KB stack to avoid overflowing
-  // Core 0's fixed 2KB stack during Curve25519 key generation.
-
-  // Core 1 runs begin() in loop1() and reports back via wg_begin_done_.
-  // Shared state between Core 0 and Core 1.
-  // Core 0 sets wg_begin_trigger_ = true to request a begin() call.
-  // Core 1 runs begin() in loop1() and reports back via wg_begin_done_.
-  volatile bool wg_begin_trigger_{false};
-  volatile bool wg_begin_done_{false};
-  volatile bool wg_begin_result_{false};
+  /// millis() timestamp of the last keepalive packet sent (RP2040 only).
+  uint32_t  last_keepalive_ms_{0};
 #else
   wireguard_config_t wg_config_ = ESP_WIREGUARD_CONFIG_DEFAULT();
   wireguard_ctx_t wg_ctx_ = ESP_WIREGUARD_CONTEXT_DEFAULT();

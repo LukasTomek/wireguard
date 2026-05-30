@@ -121,7 +121,9 @@ void Wireguard::loop() {
     uint32_t now_ms = millis();
     uint32_t interval_ms = (uint32_t) this->keepalive_ * 1000u;
     if (now_ms - this->last_keepalive_ms_ >= interval_ms) {
-      this->wg_instance_.kickHandshake(this->peer_endpoint_, this->peer_port_, interval_ms);
+      IPAddress local_ip;
+      local_ip.fromString(this->peer_endpoint_);
+      this->wg_instance_.kickHandshake(local_ip, this->peer_port_, interval_ms);
       this->last_keepalive_ms_ = now_ms;
       this->latest_handshake_approx_ = this->srctime_->now().timestamp;
     }
