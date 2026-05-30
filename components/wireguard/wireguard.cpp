@@ -11,82 +11,32 @@
 #include "esphome/core/helpers.h"
 
 #ifdef USE_RP2040
-  #include "pico_stack.h"
   #include <hardware/watchdog.h>
-  #include <pico/multicore.h>
   #include <IPAddress.h>
-#endif
-
-static const char *const TAG = "wireguard";
-#define LOGMSG_PEER_STATUS "Remote peer is %s (latest handshake %s)"
-static const char *const LOGMSG_ONLINE  = "online";
-static const char *const LOGMSG_OFFLINE = "offline";
-
-// ---------------------------------------------------------------------------
-// RP2040 Core 1 – setup1() / loop1()
-//
-// arduino-pico calls setup1() once on Core 1 after setup() completes on
-// Core 0, then calls loop1() repeatedly on Core 1.
-// We use Core 1 exclusively for the WireGuard begin() call because
-// Curve25519 key generation needs ~8 KB of stack and Core 0's stack
-// is only 2 KB (baked into the precompiled pico-sdk).
-// ---------------------------------------------------------------------------
-#ifdef USE_RP2040
-
-// Single global instance pointer – there is only ever one WireGuard component.
-static volatile esphome::wireguard::Wireguard *s_wg_instance = nullptr;
-static volatile bool s_wg_core0_ready = false;
-
-bool core1_separate_stack = true;
-
-// setup1 / loop1 must be in global scope for arduino-pico to find them.
-void setup1() {
-  delay(50);
-  ESP_LOGD(TAG, "C1: Red leader standing by...");
-  // Nothing to initialise on Core 1 – just wait for trigger from Core 0.
-}
-
-void loop1() {
-  using namespace esphome::wireguard;
-  ESP_LOGD(TAG, "C1: Stay on target...");
-  // Wait until Core 0 setup() has fully completed and registered the instance.
-  if (!s_wg_core0_ready || s_wg_instance == nullptr)
-    return;
-  auto *wg = const_cast<esphome::wireguard::Wireguard *>(s_wg_instance);
-  if (!wg->wg_begin_trigger_)
-    return;
-
-  // Clear the trigger immediately so Core 0 knows we started.
-  wg->wg_begin_trigger_ = false;
-
-  IPAddress local_ip, subnet, gateway;
-  local_ip.fromString(wg->address_);
-  subnet.fromString(wg->netmask_);
-  // Gateway: use the WireGuard peer IP from allowed_ips[0], or 0.0.0.0
-  if (wg->allowed_ips_.size() > 0) {
-    gateway.fromString(wg->allowed_ips_[0].ip);
-  } else {
-    gateway = IPAddress(0, 0, 0, 0);
+  // lwIP peer status check – same underlying function used by WireGuard-ESP32
+  extern "C" {
+    #include "wireguardif.h"
   }
-
-  bool ok = wg->wg_instance_.beginAdvanced(
-    local_ip,
-    wg->private_key_,
-    wg->peer_endpoint_,
-    wg->peer_public_key_,
-    wg->peer_port_,
-    gateway,
-    subnet
-  );
-
-  wg->wg_begin_result_ = ok;
-  wg->wg_begin_done_   = true;
+  
+  bool core1_separate_stack = true;
+#endif
+extern "C" void setup1()
+{
+	
 }
-#endif  // USE_RP2040
-
 namespace esphome {
 namespace wireguard {
-// Global pointer used by Core 1 entry function (only one WireGuard instance).
+
+static const char *const TAG = "wireguard";
+
+/*
+ * Cannot use `static const char*` for LOGMSG_PEER_STATUS on esp8266 platform
+ * because log messages in `Wireguard::update()` method fail.
+ */
+#define LOGMSG_PEER_STATUS "Remote peer is %s (latest handshake %s)"
+
+static const char *const LOGMSG_ONLINE  = "online";
+static const char *const LOGMSG_OFFLINE = "offline";
 
 // ---------------------------------------------------------------------------
 // WDT helpers
@@ -106,12 +56,7 @@ void Wireguard::setup() {
 
 #ifdef USE_RP2040
   ESP_LOGI(TAG, "Initialising WireGuard (RP2040/Pico W)");
-  // Register this instance so loop1() can find it.
-  // s_wg_core0_ready is set last so Core 1 never sees a partial state.
-  s_wg_instance         = this;
   this->wg_initialized_ = true;
-  s_wg_core0_ready      = true;  // Core 1 may now use s_wg_instance
-
   this->srctime_->add_on_time_sync_callback([this]() { this->start_connection_(); });
   this->defer([this]() { this->start_connection_(); });
 
@@ -162,23 +107,9 @@ void Wireguard::setup() {
 void Wireguard::loop() {
   if (!this->enabled_) {
     return;
-}
-
-#ifdef USE_RP2040
-  // Pick up result from Core 1 begin() once it finishes
-  if (this->wg_begin_done_) {
-    this->wg_begin_done_ = false;
-    if (this->wg_begin_result_) {
-      this->wg_connected_            = true;
-      this->wg_peer_offline_time_    = millis();
-      this->latest_handshake_approx_ = (this->srctime_ != nullptr)
-          ? this->srctime_->now().timestamp : 0;
-      ESP_LOGI(TAG, "WireGuard connection started");
-    } else {
-      ESP_LOGW(TAG, "WireGuard begin() failed on Core 1, will retry");
-    }
   }
 
+#ifdef USE_RP2040
   if (this->wg_initialized_ && this->wg_connected_ && !network::is_connected()) {
     ESP_LOGV(TAG, "Network lost, stopping WireGuard");
     this->stop_connection_();
@@ -199,8 +130,13 @@ void Wireguard::update() {
   time_t lhs = this->get_latest_handshake();
   bool lhs_updated = (lhs > this->latest_saved_handshake_);
 
-  if (lhs_updated)
+  ESP_LOGD(TAG, "initialized=%d, enabled=%d, connected=%d, peer_up=%d, handshake: current=%.0f latest=%.0f updated=%d",
+           (int) this->wg_initialized_, (int) this->enabled_, (int) (this->wg_connected_), (int) peer_up, (double) lhs,
+           (double) this->latest_saved_handshake_, (int) lhs_updated);
+
+  if (lhs_updated) {
     this->latest_saved_handshake_ = lhs;
+  }
 
   std::string latest_handshake =
       (this->latest_saved_handshake_ > 0)
@@ -298,7 +234,14 @@ bool Wireguard::can_proceed() { return (this->proceed_allowed_ || this->is_peer_
 // ---------------------------------------------------------------------------
 bool Wireguard::is_peer_up() const {
 #ifdef USE_RP2040
-  return this->wg_initialized_ && this->wg_connected_;
+  if (!this->wg_initialized_ || !this->wg_connected_)
+    return false;
+  IPAddress current_ip;
+  u16_t current_port;
+  s8_t result;
+  result = this->wg_instance_.peerUp(&current_ip, &current_port);
+  ESP_LOGD(TAG, "peerUp = %d, current_ip = %d.%d.%d.%d, current_port = %d", result, current_ip[0], current_ip[1], current_ip[2], current_ip[3], current_port);
+  return result;
 #else
   return (this->wg_initialized_ == ESP_OK) &&
          (this->wg_connected_   == ESP_OK) &&
@@ -319,6 +262,8 @@ time_t Wireguard::get_latest_handshake() const {
   return result;
 #endif
 }
+
+
 
 void Wireguard::set_keepalive(const uint16_t seconds) { this->keepalive_ = seconds; }
 void Wireguard::set_reboot_timeout(const uint32_t seconds) { this->reboot_timeout_ = seconds; }
@@ -398,13 +343,59 @@ void Wireguard::start_connection_() {
     return;
   }
 #ifdef USE_RP2040
-  // begin() runs Curve25519 key generation which needs ~8KB of stack.
-  // Core 0 (arduino-pico) only has 2KB and PICO_STACK_SIZE is baked into
-  // the precompiled SDK so build flags cannot change it at compile time.
-  ESP_LOGD(TAG, "Triggering WireGuard begin() on Core 1");
-  this->wg_begin_done_    = false;
-  this->wg_begin_result_  = false;
-  this->wg_begin_trigger_ = true;  // Core 1 picks this up in loop1()
+  if (this->wg_connected_) {
+    ESP_LOGV(TAG, "Connection already started");
+    return;
+  }
+#else
+  if (this->wg_connected_ == ESP_OK) {
+    ESP_LOGV(TAG, "Connection already started");
+    return;
+  }
+#endif
+
+#ifdef USE_RP2040
+  // jaszczurtd/arduino-wireguard-pico-w API:
+  //   bool beginAdvanced(IPAddress localIP,
+  //                      const char* privateKey,
+  //                      const char* remotePeerAddress,
+  //                      const char* remotePeerPublicKey,
+  //                      uint16_t remotePeerPort,
+  //                      IPAddress allowedIP,
+  //                      IPAddress allowedMask)
+  IPAddress local_ip;
+  local_ip.fromString(this->address_);
+
+  // Use first allowed IP entry (ESPHome collapses the list in __init__.py)
+  IPAddress allowed_ip(0, 0, 0, 0);
+  IPAddress allowed_mask(0, 0, 0, 0);
+  if (this->allowed_ips_.size() > 0) {
+    allowed_ip.fromString(this->allowed_ips_[0].ip);
+    allowed_mask.fromString(this->allowed_ips_[0].netmask);
+  }
+
+  ESP_LOGD(TAG, "Starting WireGuard connection (RP2040/Pico W)");
+  suspend_wdt();
+  bool ok = this->wg_instance_.beginAdvanced(
+    local_ip,
+    this->private_key_,
+    this->peer_endpoint_,
+    this->peer_public_key_,
+    this->peer_port_,
+    allowed_ip,
+    allowed_mask
+  );
+  resume_wdt();
+
+  if (!ok) {
+    ESP_LOGW(TAG, "beginAdvanced() failed, will retry");
+    return;
+  }
+
+  this->wg_connected_            = true;
+  this->wg_peer_offline_time_    = millis();
+  this->latest_handshake_approx_ = this->srctime_->now().timestamp;
+  ESP_LOGI(TAG, "WireGuard connection started");
 
 #else
   // ESP32 / ESP8266 / BK72xx – unchanged from official component
@@ -448,9 +439,7 @@ void Wireguard::stop_connection_() {
   if (this->wg_initialized_ && this->wg_connected_) {
     ESP_LOGD(TAG, "Stopping WireGuard connection");
     this->wg_instance_.end();
-    this->wg_connected_     = false;
-    this->wg_begin_trigger_ = false;
-    this->wg_begin_done_    = false;
+    this->wg_connected_ = false;
   }
 #else
   if (this->wg_initialized_ == ESP_OK && this->wg_connected_ == ESP_OK) {
